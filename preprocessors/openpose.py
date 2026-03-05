@@ -299,7 +299,7 @@ def _npmax(array):
 class _Body:
     def __init__(self, model_path):
         self.model = _BodyPoseModel()
-        model_dict = _transfer(self.model, torch.load(model_path, map_location="cpu"))
+        model_dict = _transfer(self.model, torch.load(model_path, map_location="cpu", weights_only=True))
         self.model.load_state_dict(model_dict)
         self.model.eval()
 
@@ -494,7 +494,7 @@ class _Body:
 class _Hand:
     def __init__(self, model_path):
         self.model = _HandPoseModel()
-        model_dict = _transfer(self.model, torch.load(model_path, map_location="cpu"))
+        model_dict = _transfer(self.model, torch.load(model_path, map_location="cpu", weights_only=True))
         self.model.load_state_dict(model_dict)
         self.model.eval()
 

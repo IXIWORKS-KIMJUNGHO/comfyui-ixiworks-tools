@@ -1,10 +1,10 @@
 import { app } from "../../scripts/app.js";
 
 app.registerExtension({
-    name: "IXIWORKS.ImageToList",
+    name: "IXIWORKS.LoadImageList",
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name !== "UtilImageToList") return;
+        if (nodeData.name !== "UtilLoadImageList") return;
 
         const origCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
@@ -17,22 +17,23 @@ app.registerExtension({
             const origCallback = countWidget.callback;
             countWidget.callback = function (value) {
                 if (origCallback) origCallback.call(this, value);
-                self._updateInputSlots(value);
+                self._updateImageDropdowns(value);
             };
 
-            // Initial setup
-            this._updateInputSlots(countWidget.value);
+            this._updateImageDropdowns(countWidget.value);
         };
 
-        nodeType.prototype._updateInputSlots = function (count) {
-            // Remove extra inputs beyond count
-            while (this.inputs && this.inputs.length > count) {
-                this.removeInput(this.inputs.length - 1);
-            }
-            // Add missing inputs up to count
-            const currentCount = this.inputs ? this.inputs.length : 0;
-            for (let i = currentCount + 1; i <= count; i++) {
-                this.addInput(`image_${i}`, "IMAGE");
+        nodeType.prototype._updateImageDropdowns = function (count) {
+            for (const w of this.widgets) {
+                if (!w.name.startsWith("image_")) continue;
+                const idx = parseInt(w.name.split("_")[1]);
+                if (idx <= count) {
+                    w.hidden = false;
+                    w.computeSize = null;
+                } else {
+                    w.hidden = true;
+                    w.computeSize = () => [0, -4];
+                }
             }
             this.setSize(this.computeSize());
             app.graph.setDirtyCanvas(true, true);
@@ -43,10 +44,7 @@ app.registerExtension({
             if (origOnConfigure) origOnConfigure.apply(this, arguments);
             const countWidget = this.widgets && this.widgets.find((w) => w.name === "count");
             if (countWidget) {
-                // Delay to ensure node is fully configured
-                setTimeout(() => {
-                    this._updateInputSlots(countWidget.value);
-                }, 0);
+                this._updateImageDropdowns(countWidget.value);
             }
         };
     }

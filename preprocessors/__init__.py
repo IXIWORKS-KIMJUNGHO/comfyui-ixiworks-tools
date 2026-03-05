@@ -58,6 +58,6 @@ CALL_PARAMS = {
     "canny": {},
     "depth": {},
     "lineart": {"coarse": False},
-    "pose": {"hand_and_face": True},
+    "pose": {},
     "mlsd": {},
 }

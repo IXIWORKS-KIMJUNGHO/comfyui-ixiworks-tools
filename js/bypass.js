@@ -7,6 +7,7 @@ const MODE_BYPASS = 4;
 
 function setUpstreamMode(node, bypass) {
     if (!node.graph) return;
+    if (!node.inputs || node.inputs.length === 0) return;
 
     const link = node.inputs[0].link;
     if (link == null) return;
@@ -33,7 +34,7 @@ app.registerExtension({
     name: "IXIWORKS.Bypass",
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name !== "Bypass") return;
+        if (nodeData.name !== "UtilBypass") return;
 
         const origCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {

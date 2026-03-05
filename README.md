@@ -1,192 +1,139 @@
-# IXIWORKS Tools
+# IXIWORKS Tools for ComfyUI
 
-Video description, storyboard, and utility custom nodes for ComfyUI.
+Video description, storyboard, ControlNet, image, LoRA, and utility custom nodes for ComfyUI.
 
-## Features
-
-### Video Category
-- **Video Description (Qwen3-VL)**: Full video analysis with Qwen3-VL-8B-Instruct
-
-### StoryBoard Category
-- **JSON Parser**: Parse storyboard JSON files into scene/character data
-- **Build Prompt**: Combine scene data into prompts
-- **Build Character Prompt**: Generate character descriptions
-- **Select Index**: Select specific scene by index
-- **Merge Strings**: Combine string arrays with separator
-
-### Utils Category
-- **Switch**: Boolean switch between two inputs
-- **Switch Case**: Select one of N inputs by index (2~8 inputs)
-- **String to List**: Convert multiple string inputs to a list for batch processing
-- **Join Strings**: Concatenate two strings with configurable separator
-- **Set / Get**: Virtual nodes for wire-free connections (frontend only)
-
-## Installation
-
-### Step 1: Install Base Dependencies
-
-```bash
-cd ComfyUI/custom_nodes/ComfyUI-VideoDescription
-pip install -r requirements.txt
-```
-
-This installs:
-- transformers, tokenizers, accelerate (for Qwen3-VL)
-- qwen-vl-utils (Qwen3-VL helper library)
-
-## Model Download
-
-**Important**: You need to download the models before using these nodes.
-
-### Model Locations
-
-Models will be downloaded to:
-```
-ComfyUI/models/video_description/
-└── Qwen3-VL-8B-Instruct/    # Full video analysis model
-```
-
-This follows ComfyUI's standard model organization structure.
-
-### Option 1: Pre-download (Recommended)
-
-Download the models before first use to avoid waiting:
-
-```bash
-cd ComfyUI/custom_nodes/ComfyUI-VideoDescription
-python download_models.py
-```
-
-This will download models to `ComfyUI/models/video_description/`
-
-### Option 2: Automatic Download
-
-Models will download automatically on first use. However, this will cause delays:
-- **Qwen3-VL**: 10-30 minute delay (16GB download)
-
-**Download behavior**:
-1. Node checks model directory
-2. If not found: Downloads from Hugging Face
-3. If found: Loads directly (fast!)
-
-### Disk Space Requirements
-
-- **Qwen3-VL-8B (FP16)**: ~16GB
-- **With 4-bit quantization**: ~8GB
-- **Recommended free space**: 20GB+
-
-### Hardware Requirements
-
-- ✅ Works on: NVIDIA CUDA, Apple Silicon (MPS), CPU
-- Recommended: 16GB+ RAM, GPU with 8GB+ VRAM
-
-## Quick Start
-
-### Usage Example
-
-1. **Place your video in ComfyUI/input/ directory** (Recommended)
-   ```bash
-   # Example: Copy video to input folder
-   cp my_video.mp4 ComfyUI/input/
-   ```
-
-2. **Add the node in ComfyUI**
-   - Look for "video" category in the node menu
-   - Add "Video Description (Qwen3-VL)" node
-
-3. **Configure the node**
-   - `video_path`: Enter just the filename (e.g., `my_video.mp4`)
-     - The node automatically searches in `ComfyUI/input/` directory
-     - Supports subfolders: `videos/my_video.mp4`
-     - Or use absolute path: `/full/path/to/video.mp4`
-   - Set your prompt and parameters
-   - Run to generate description
-
-### Testing the Node
-
-1. Restart ComfyUI
-2. Copy a test video to `ComfyUI/input/`
-3. Add "Video Description (Qwen3-VL)" node
-4. Enter the video filename in `video_path` (e.g., `test.mp4`)
-5. Run the workflow
-
-## Current Nodes
-
-### Video Description (Qwen3-VL) - v1.2.0
-
-**Status**: Fully functional with smart path resolution and analysis type presets
-
-**Required Inputs**:
-- `video_path` (STRING): Path to video file
-  - **Just filename**: `video.mp4` → searches in `ComfyUI/input/`
-  - **Subfolder**: `videos/scene1.mp4` → searches in `ComfyUI/input/videos/`
-  - **Absolute path**: `/full/path/to/video.mp4`
-- `analysis_type` (DROPDOWN): Type of video analysis
-  - **detailed**: Comprehensive description with rich details (384 tokens, temp 0.7)
-  - **summary**: Brief 2-3 sentence overview (128 tokens, temp 0.5)
-  - **keywords**: Structured metadata extraction (256 tokens, temp 0.3)
-  - Default: "detailed"
-- `fps` (FLOAT): Frames per second for video sampling
-  - Default: 1.0, Min: 0.1, Max: 30.0
-  - Higher FPS = more frames analyzed = slower but more detailed
-  - Recommended: 0.5-1.0 for most videos
-
-**Optional Inputs**:
-- `custom_prompt` (STRING): Custom analysis prompt
-  - Overrides the analysis_type preset
-  - Use when you need specific questions answered
-  - Default: "" (uses analysis_type preset)
-- `use_4bit` (BOOLEAN): Enable 4-bit quantization
-  - Default: False
-  - Reduces VRAM usage from ~16GB to ~8GB
-- `temperature` (FLOAT): Text generation creativity (LLM parameter)
-  - Default: 0.7, Min: 0.0, Max: 1.0
-  - Only used when custom_prompt is provided
-  - **Note**: This is NOT the same as "denoise" in image generation
-
-**Outputs**:
-- `description` (STRING): Generated video description
-- `info` (STRING): Processing information (duration, resolution, FPS, etc.)
-
-**How It Works**:
-1. Resolves video path (searches in ComfyUI/input/ if relative)
-2. Validates video file format and accessibility
-3. Loads Qwen3-VL model (cached after first load)
-4. Extracts frames at specified FPS rate
-5. Generates natural language description using Vision-Language Model
-6. Returns description and metadata
-
-**Performance**:
-- 3-second video: ~14 seconds (model loading + inference)
-- 30-second video: ~130 seconds
-- First run includes model loading (5-6 seconds), subsequent runs reuse cached model
+**21 nodes** across 6 categories.
 
 ---
 
-## StoryBoard Nodes
+## Node List
 
-### JSON Parser (StoryBoard)
+### IXIWORKS/Video (1)
 
-Parses JSON storyboard files and extracts scene/character data.
+| Key | Display Name | Description |
+|-----|-------------|-------------|
+| `VideoDescribe` | Video Describe | Full video analysis with Qwen3-VL-8B-Instruct |
 
-**Inputs**:
-- `file_name` (STRING): JSON filename in `ComfyUI/input/prompt/` directory
+### IXIWORKS/StoryBoard (6)
 
-**Outputs**:
-- `zipped_prompt` (ZIPPED_PROMPT): Scene data tuples (description, time_weather, camera_info, composition)
-- `zipped_character` (ZIPPED_PROMPT): Character data tuples
-- `count` (INT): Number of scenes
+| Key | Display Name | Description |
+|-----|-------------|-------------|
+| `SBJsonParser` | SB JSON Parser | Parse storyboard JSON files into scene/character data |
+| `SBPromptBuilder` | SB Prompt Builder | Combine scene data into prompt strings |
+| `SBCharacterPrompt` | SB Character Prompt | Generate natural language character descriptions |
+| `SBSelectCut` | Select Cut | Select a specific scene by index |
+| `SBMergeStrings` | SB Merge Strings | Merge two string arrays with a separator |
+| `SBPromptFilter` | SB Prompt Filter | Filter prompts for LoRA style or ControlNet type via Claude API |
 
-**JSON Format**:
+### IXIWORKS/ControlNet (2)
+
+| Key | Display Name | Description |
+|-----|-------------|-------------|
+| `CNPreprocessor` | CN Preprocessor | Run canny/depth/lineart/openpose/mlsd preprocessors |
+| `CNStepControl` | CN Step Control | Apply step-range + linear fade to a ControlNet model patch |
+
+### IXIWORKS/Image (1)
+
+| Key | Display Name | Description |
+|-----|-------------|-------------|
+| `ImageCropResize` | Crop & Resize | Crop and resize image to a target aspect ratio |
+
+### IXIWORKS/LoRA (1)
+
+| Key | Display Name | Description |
+|-----|-------------|-------------|
+| `LoRAStepLoader` | LoRA Step Loader | Load LoRA with step-range scheduling via ComfyUI hooks |
+
+### IXIWORKS/Utils (10)
+
+| Key | Display Name | Description |
+|-----|-------------|-------------|
+| `UtilSwitch` | Switch | Boolean switch between two inputs (lazy eval) |
+| `UtilSwitchCase` | Switch Case | Select one of N inputs by index (2–8, lazy eval) |
+| `UtilStringToList` | String to List | Convert multiple text inputs to a list for batch processing |
+| `UtilConcatStrings` | Concat Strings | Concatenate two strings with configurable separator |
+| `UtilSaveText` | Save Text | Write a string to a file in the output directory |
+| `UtilLoadImageList` | Load Image List | Load images from Input folder via dropdown selectors into a list |
+| `UtilImageToList` | Image to List | Collect multiple IMAGE inputs into a list |
+| `UtilBypass` | Bypass | Pass-through toggle — returns None when bypass=True |
+| `UtilEmptyLatent` | Empty Latent | Generate an empty latent from a named aspect ratio |
+| `UtilJsonToList` | JSON to List | Load a JSON file or string and extract items by dot-notation key |
+
+---
+
+## Installation
+
+```bash
+cd ComfyUI/custom_nodes/comfyui-ixiworks-tools
+pip install -r requirements.txt
+```
+
+### Dependencies
+
+- `torch >= 2.0.0`
+- `transformers >= 4.50.0`
+- `accelerate >= 0.20.0`
+- `qwen-vl-utils`
+- `opencv-python`
+- `pillow`, `numpy`
+- `anthropic` (required for SBPromptFilter only)
+
+---
+
+## Model Download
+
+### VideoDescribe
+
+The Qwen3-VL model downloads automatically on first use (~16GB). To pre-download:
+
+```bash
+python download_models.py
+```
+
+Models are saved to `ComfyUI/models/video_description/Qwen3-VL-8B-Instruct/`.
+
+### CNPreprocessor
+
+Preprocessor model weights are downloaded automatically from HuggingFace on first use and cached in the ComfyUI models directory.
+
+---
+
+## Node Details
+
+### VideoDescribe
+
+Analyzes a video file using Qwen3-VL vision-language model.
+
+**Inputs**
+- `video_path` (STRING): Filename or absolute path. Relative paths resolve against `ComfyUI/input/`.
+- `analysis_type` (COMBO): `detailed` / `summary` / `keywords`
+- `fps` (FLOAT, default 1.0): Frames per second to sample
+- `custom_prompt` (STRING, optional): Overrides analysis_type preset
+- `use_4bit` (BOOLEAN, default False): Enable 4-bit quantization (~8GB VRAM instead of ~16GB)
+- `temperature` (FLOAT, default 0.7): Generation temperature (used with custom_prompt)
+
+**Outputs**: `description` (STRING), `info` (STRING)
+
+---
+
+### SBJsonParser
+
+Parses a storyboard JSON file from `ComfyUI/input/prompt/`.
+
+**Input**: `JSON` (COMBO) — filename selector
+
+**Outputs**: `zipped_prompt` (ZIPPED_PROMPT list), `zipped_character` (ZIPPED_PROMPT list), `count` (INT)
+
+**JSON format**:
 ```json
 {
   "scene": {
     "1": {
       "mainCharacter": { "koName": "", "enName": "", "description": "" },
-      "subCharacter": { "koName": "", "enName": "", "description": "" },
-      "time": { "ko": "", "en": "" },
-      "weather": { "ko": "", "en": "" },
-      "cameraShot": { "ko": "", "en": "" },
+      "subCharacter":  { "koName": "", "enName": "", "description": "" },
+      "time":        { "ko": "", "en": "" },
+      "weather":     { "ko": "", "en": "" },
+      "cameraShot":  { "ko": "", "en": "" },
       "cameraAngle": { "ko": "", "en": "" },
       "description": { "ko": "", "en": "" },
       "composition": { "ko": "", "en": "" }
@@ -197,137 +144,261 @@ Parses JSON storyboard files and extracts scene/character data.
 
 ---
 
-### Build Prompt (StoryBoard)
+### SBPromptBuilder
 
-Combines scene data into a single prompt string.
+Combines ZIPPED_PROMPT scene data into prompt strings.
 
-**Inputs**:
-- `zipped_prompt` (ZIPPED_PROMPT): From JsonParserNode
+**Input**: `zipped_prompt` (ZIPPED_PROMPT list, INPUT_IS_LIST)
 
-**Outputs**:
-- `prompt` (STRING): Combined scene prompt
+**Output**: `prompt` (STRING list)
 
 ---
 
-### Build Character Prompt (StoryBoard)
+### SBCharacterPrompt
 
-Generates natural language character descriptions.
+Generates natural language character descriptions from character data.
 
-**Inputs**:
-- `zipped_character` (ZIPPED_PROMPT): From JsonParserNode
+**Input**: `zipped_character` (ZIPPED_PROMPT list, INPUT_IS_LIST)
 
-**Outputs**:
-- `character_prompt` (STRING): Character description (e.g., "Somyung is a female teenager...")
+**Output**: `character_prompt` (STRING list)
 
 ---
 
-### Select Index (StoryBoard)
+### SBSelectCut
 
-Selects a specific scene by index.
+Selects a single scene by index from a ZIPPED_PROMPT list.
 
-**Inputs**:
-- `zipped_prompt` (ZIPPED_PROMPT): From JsonParserNode
-- `index` (INT): Scene index (0-based)
+**Inputs**: `zipped_prompt` (ZIPPED_PROMPT list), `index` (INT)
 
-**Outputs**:
-- `selected_prompt` (ZIPPED_PROMPT): Single scene data
+**Output**: `selected_prompt` (ZIPPED_PROMPT)
 
 ---
 
-### Merge Strings (StoryBoard)
+### SBMergeStrings
 
-Merges two string arrays with a separator.
+Merges two STRING lists element-wise with a separator.
 
-**Inputs**:
-- `strings_a` (STRING): First string array
-- `strings_b` (STRING): Second string array
-- `separator` (STRING): Optional separator (default: " ")
+**Inputs**: `strings_a` (STRING), `strings_b` (STRING), `separator` (STRING, default `" "`)
 
-**Outputs**:
-- `merged_strings` (STRING): Merged result
+**Output**: `merged_strings` (STRING list)
 
 ---
 
-## Roadmap
+### SBPromptFilter
 
-### Phase 1: Qwen3-VL Integration ✅
-- ✅ Model loader implementation with caching
-- ✅ Video validation and info extraction
-- ✅ Inference pipeline with Qwen3-VL
-- ✅ Error handling and cleanup
-- ✅ Smart path resolution with ComfyUI/input/ search
-- ✅ Performance optimization (removed tensor conversion overhead)
-- ✅ Analysis type presets (detailed/summary/keywords)
+Filters prompts to remove conflicting keywords for a LoRA style or ControlNet type, using the Claude API.
 
-### Phase 2: Advanced Features (Planned)
-- [ ] Batch processing support for multiple videos
-- [ ] Video timestamp-based analysis
-- [ ] Advanced prompt templates library
-- [ ] Performance optimization and caching improvements
+**Inputs**
+- `prompt` (STRING list)
+- `filter_mode` (COMBO): `style` / `controlnet`
+- `style_type` (COMBO): `inksketch` / `ink-wash` / `pen-ink-illustration` / `ink-watercolor` / `watercolor-illustration`
+- `controlnet_type` (COMBO): `pose` / `depth` / `canny`
+- `api_key` (STRING): Anthropic API key
 
-### Phase 3: Production Ready (Future)
-- [ ] Comprehensive testing
-- [ ] Example workflows
-- [ ] Performance benchmarks
-- [ ] Community deployment
+**Output**: `filtered_prompt` (STRING list)
 
-## Requirements
+---
 
-- Python 3.8+
-- PyTorch 2.0+
-- NVIDIA GPU with 16GB+ VRAM (recommended)
-- ComfyUI
+### CNPreprocessor
 
-## Dependencies
+Runs a ControlNet preprocessor on an image batch.
 
-See [requirements.txt](requirements.txt) for full list:
-- torch>=2.0.0
-- transformers>=4.50.0
-- accelerate>=0.20.0
-- qwen-vl-utils
-- opencv-python
-- pillow
-- numpy
+**Inputs**
+- `image` (IMAGE)
+- `preprocessor` (COMBO): `canny` / `depth` / `lineart` / `openpose` / `mlsd`
+- `resolution` (INT, default 512)
+- `low_threshold` (INT, optional, canny only)
+- `high_threshold` (INT, optional, canny only)
 
-## Hardware Recommendations
+**Output**: `image` (IMAGE)
 
-| Configuration | GPU | VRAM | Performance |
-|--------------|-----|------|-------------|
-| Minimum | RTX 3060 | 12GB | Basic (with quantization) |
-| Recommended | RTX 4090 | 24GB | Good (FP16) |
-| Optimal | A100 | 40GB+ | Excellent (FP16, batch) |
+---
+
+### CNStepControl
+
+Applies step-range gating and linear fade to an existing ControlNet double-block patch. Designed for Flux / Z-Image architectures.
+
+**Inputs**: `model` (MODEL), `strength_start` (FLOAT), `strength_end` (FLOAT), `start_at` (FLOAT), `end_at` (FLOAT)
+
+**Output**: `model` (MODEL)
+
+---
+
+### ImageCropResize
+
+Crops an image to a target aspect ratio and resizes to `long_side` pixels.
+
+**Inputs**: `image` (IMAGE), `aspect_ratio` (COMBO), `long_side` (INT, default 1024)
+
+**Output**: `image` (IMAGE)
+
+---
+
+### LoRAStepLoader
+
+Loads a LoRA with per-step strength scheduling via ComfyUI hooks API.
+
+**Inputs**
+- `model` (MODEL), `clip` (CLIP)
+- `lora_name` (COMBO)
+- `strength_start` (FLOAT), `strength_end` (FLOAT)
+- `start_at` (FLOAT), `end_at` (FLOAT)
+
+**Outputs**: `model` (MODEL), `clip` (CLIP), `hooks` (HOOKS)
+
+---
+
+### UtilSwitch
+
+Boolean switch with lazy evaluation — only evaluates the selected branch.
+
+**Inputs**: `on_false` (ANY, lazy), `on_true` (ANY, lazy), `boolean_switch` (BOOLEAN)
+
+**Output**: `output` (ANY)
+
+---
+
+### UtilSwitchCase
+
+Selects one of N inputs by index with lazy evaluation (2–8 inputs, dynamic via JS).
+
+**Inputs**: `count` (INT), `select` (INT), `input_0..7` (ANY, lazy, optional)
+
+**Output**: `output` (ANY)
+
+---
+
+### UtilStringToList
+
+Converts multiple text widget inputs into a STRING list for batch processing (up to 8).
+
+**Inputs**: `count` (INT), `prompt_1` (STRING), `prompt_2..8` (STRING, optional)
+
+**Output**: `strings` (STRING list)
+
+---
+
+### UtilConcatStrings
+
+Concatenates two strings with a configurable separator.
+
+**Inputs**: `string_a` (STRING), `string_b` (STRING), `separator` (STRING, optional)
+
+**Output**: `joined_string` (STRING)
+
+---
+
+### UtilSaveText
+
+Writes a string to a file in the ComfyUI output directory.
+
+**Inputs**: `text` (STRING), `filename` (STRING, default `"output.txt"`)
+
+No output (OUTPUT_NODE).
+
+---
+
+### UtilLoadImageList
+
+Loads images selected from dropdown menus (from `ComfyUI/input/`) into an IMAGE list. Up to 20 images, count-controlled with dynamic JS show/hide.
+
+**Inputs**
+- `count` (INT, default 1, max 20): number of image slots to show
+- `image_1` (COMBO): image file selector — Input folder contents
+- `image_2..20` (COMBO, optional): additional image slots
+
+Select `[none]` to skip a slot. Dropdown list auto-populates from `ComfyUI/input/`.
+
+**Output**: `images` (IMAGE list)
+
+---
+
+### UtilImageToList
+
+Collects up to 8 IMAGE inputs into an IMAGE list (count-controlled, dynamic via JS).
+
+**Inputs**: `count` (INT), `image_1..8` (IMAGE, optional)
+
+**Output**: `images` (IMAGE list)
+
+---
+
+### UtilBypass
+
+Pass-through toggle. When `bypass=True`, returns None (and JS sets the upstream node to bypass mode).
+
+**Inputs**: `bypass` (BOOLEAN), `input` (ANY, optional)
+
+**Output**: `output` (ANY)
+
+---
+
+### UtilEmptyLatent
+
+Generates an empty latent tensor from a named aspect ratio.
+
+**Inputs**
+- `ratio` (COMBO): `21:9` / `1.85:1` / `16:9` / `9:16` / `1:1`
+- `long_side` (INT, default 1024)
+- `channels` (COMBO): `16` (Flux/Lumina/SD3) / `4` (SD/SDXL)
+- `batch_size` (INT, default 1)
+
+**Outputs**: `latent` (LATENT), `width` (INT), `height` (INT)
+
+---
+
+### UtilJsonToList
+
+Loads a JSON file or raw JSON string and extracts items as a STRING list.
+
+**Inputs**
+- `file_path` (STRING): filename relative to `ComfyUI/input/`, or absolute path
+- `json_string` (STRING, optional): raw JSON string — overrides `file_path` if connected
+- `key` (STRING, optional): dot-notation path into JSON, e.g. `"prompts.solo"`. Empty = root.
+
+Dict values are always flattened into a single list.
+
+**Outputs**: `strings` (STRING list), `count` (INT)
+
+---
+
+## Hardware Requirements
+
+| Configuration | GPU | VRAM | Notes |
+|--------------|-----|------|-------|
+| Minimum | RTX 3060 | 12GB | VideoDescribe with 4-bit quant |
+| Recommended | RTX 4090 | 24GB | Full FP16 |
+| Apple Silicon | M1/M2/M3 | Unified | MPS supported |
+
+---
 
 ## License
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Apache License 2.0
 
-    http://www.apache.org/licenses/LICENSE-2.0
+---
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
-## Support
-
-- **GitHub Issues**: Report bugs or request features
-- **Documentation**: Check README and code comments
-
-## Acknowledgments
-
-- [ComfyUI](https://github.com/comfyanonymous/ComfyUI) - Node-based UI for Stable Diffusion
-- [Qwen-VL](https://github.com/QwenLM/Qwen-VL) - Vision-language model by Alibaba
 ## Changelog
 
+### v2.1.0
+- `UtilLoadImageList`: replaced `filenames` text input with count-based dropdown selectors (Input folder)
+- `UtilJsonToList`: simplified to `file_path` + `key` only — removed `item_field`, `flatten_dict`, `shuffle`, `limit`
+
+### v2.0.0
+- Full node reorganization: unified IXIWORKS/* category prefix
+- Added ControlNet category: CNPreprocessor (canny/depth/lineart/openpose/mlsd), CNStepControl
+- Added Image category: ImageCropResize
+- Added LoRA category: LoRAStepLoader
+- Added Utils: UtilBypass, UtilEmptyLatent, UtilJsonToList, UtilLoadImageList, UtilImageToList
+- Added StoryBoard: SBPromptFilter (Claude API style/controlnet filtering)
+- Removed controlnet_aux dependency — direct preprocessor implementations
+- Removed Layer Separation nodes and Sampler nodes
+- JS extensions updated for all renamed nodes
+- Various bug fixes (INPUT_IS_LIST chains, IS_CHANGED, error handling)
+
 ### v1.3.2
-- Added Switch Case node (select 1 of N inputs by index)
-- Added Get/Set virtual nodes (frontend JS, wire-free connections)
-- Added Join Strings node
-- Added String to List node
-- Updated node display names
+- Added Switch Case node
+- Added Join Strings node, String to List node
 - Added frontend JS support (WEB_DIRECTORY)
 
 ### v1.2.0

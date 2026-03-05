@@ -26,7 +26,7 @@ class ControlNetPreprocessorNode:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image",)
     FUNCTION = "preprocess"
-    CATEGORY = "IXIWORKS/Image"
+    CATEGORY = "IXIWORKS/ControlNet"
 
     def preprocess(self, image, preprocessor, resolution,
                    low_threshold=100, high_threshold=200):
@@ -34,42 +34,49 @@ class ControlNetPreprocessorNode:
         import numpy as np
         from PIL import Image as PILImage
 
+        if image is None:
+            raise ValueError("CNPreprocessor: image input is required")
+
         detector = get_detector(preprocessor)
         call_kwargs = dict(CALL_PARAMS.get(preprocessor, {}))
         call_kwargs["detect_resolution"] = resolution
         call_kwargs["image_resolution"] = resolution
 
+        if preprocessor == "canny" and low_threshold > high_threshold:
+            low_threshold, high_threshold = high_threshold, low_threshold
+
         if preprocessor == "canny":
             call_kwargs["low_threshold"] = low_threshold
             call_kwargs["high_threshold"] = high_threshold
 
-        results = []
-        for i in range(image.shape[0]):
-            pil_img = PILImage.fromarray(
-                (image[i].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-            )
+        with torch.no_grad():
+            results = []
+            for i in range(image.shape[0]):
+                pil_img = PILImage.fromarray(
+                    (image[i].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+                )
 
-            try:
-                processed = detector(pil_img, **call_kwargs)
-            except Exception as e:
-                raise RuntimeError(
-                    f"ControlNet preprocessor '{preprocessor}' failed: {e}"
-                ) from e
+                try:
+                    processed = detector(pil_img, **call_kwargs)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"ControlNet preprocessor '{preprocessor}' failed: {e}"
+                    ) from e
 
-            if isinstance(processed, tuple):
-                processed = processed[0]
+                if isinstance(processed, tuple):
+                    processed = processed[0]
 
-            if isinstance(processed, PILImage.Image):
-                processed = processed.convert("RGB")
+                if isinstance(processed, PILImage.Image):
+                    processed = processed.convert("RGB")
 
-            result = torch.from_numpy(
-                np.array(processed).astype(np.float32) / 255.0
-            )
+                result = torch.from_numpy(
+                    np.array(processed).astype(np.float32) / 255.0
+                )
 
-            if result.dim() == 2:
-                result = result.unsqueeze(-1).expand(-1, -1, 3)
+                if result.dim() == 2:
+                    result = result.unsqueeze(-1).expand(-1, -1, 3)
 
-            results.append(result)
+                results.append(result)
 
         return (torch.stack(results),)
 
@@ -101,12 +108,18 @@ class DiffSynthControlnetAdvancedNode:
     RETURN_TYPES = ("MODEL",)
     RETURN_NAMES = ("model",)
     FUNCTION = "apply"
-    CATEGORY = "IXIWORKS/Image"
+    CATEGORY = "IXIWORKS/ControlNet"
 
     def apply(self, model, strength_start, strength_end, start_at, end_at):
+        if start_at > end_at:
+            raise ValueError(f"CNStepControl: start_at ({start_at}) must be <= end_at ({end_at})")
+
         model_sampling = model.get_model_object("model_sampling")
-        sigma_start = model_sampling.percent_to_sigma(start_at)
-        sigma_end = model_sampling.percent_to_sigma(end_at)
+        try:
+            sigma_start = model_sampling.percent_to_sigma(start_at)
+            sigma_end = model_sampling.percent_to_sigma(end_at)
+        except Exception as e:
+            raise RuntimeError(f"CNStepControl: sigma conversion failed: {e}") from e
 
         str_begin = strength_start
         str_finish = strength_end
@@ -165,11 +178,11 @@ class DiffSynthControlnetAdvancedNode:
 
 
 NODE_CLASS_MAPPINGS = {
-    "ControlNetPreprocessor": ControlNetPreprocessorNode,
-    "DiffSynthControlnetAdvanced": DiffSynthControlnetAdvancedNode,
+    "CNPreprocessor": ControlNetPreprocessorNode,
+    "CNStepControl": DiffSynthControlnetAdvancedNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "ControlNetPreprocessor": "ControlNet Preprocessor",
-    "DiffSynthControlnetAdvanced": "ControlNet Step Control",
+    "CNPreprocessor": "CN Preprocessor",
+    "CNStepControl": "CN Step Control",
 }

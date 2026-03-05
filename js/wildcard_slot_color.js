@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 
-const WILDCARD_NODES = ["SwitchBoolean", "SwitchCase", "Bypass"];
+const WILDCARD_NODES = ["UtilSwitch", "UtilSwitchCase", "UtilBypass"];
 
 function getSlotColor(type) {
     const canvas = app.canvas;

@@ -123,13 +123,19 @@ class SwitchCaseNode:
         return (kwargs.get(key, None),)
 
 
-class SaveTextNode:
+class SaveFileNode:
+    INPUT_IS_LIST = True
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "subfolder": ("STRING", {"default": ""}),
+                "filename_prefix": ("STRING", {"default": "file"}),
+            },
+            "optional": {
                 "text": ("STRING", {"forceInput": True}),
-                "filename": ("STRING", {"default": "output.txt"}),
+                "image": ("IMAGE",),
             }
         }
 
@@ -138,28 +144,114 @@ class SaveTextNode:
     CATEGORY = "IXIWORKS/Utils"
     OUTPUT_NODE = True
 
-    def save(self, text, filename):
+    @classmethod
+    def IS_CHANGED(cls, **kwargs):
+        import time
+        return time.time()
+
+    def save(self, subfolder, filename_prefix, text=None, image=None):
         import os
+        import re
+        import numpy as np
         import folder_paths
+        from PIL import Image as PILImage
+
+        # INPUT_IS_LIST: scalar inputs arrive as single-element lists
+        subfolder = (subfolder[0] if subfolder else "").strip()
+        prefix = (filename_prefix[0] if filename_prefix else "").strip() or "file"
 
         output_dir = folder_paths.get_output_directory()
-        file_path = os.path.join(output_dir, filename)
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(text)
+        # Subfolder path traversal guard
+        if subfolder:
+            save_dir = os.path.realpath(os.path.join(output_dir, subfolder))
+            if not save_dir.startswith(os.path.realpath(output_dir)):
+                print(f"[SaveFile] Invalid subfolder '{subfolder}', falling back to output dir")
+                save_dir = output_dir
+        else:
+            save_dir = output_dir
 
-        return {}
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Flatten image list: List[Tensor[B,H,W,C]] → List[Tensor[H,W,C]]
+        frames = []
+        if image is not None:
+            for img_tensor in image:
+                for i in range(img_tensor.shape[0]):
+                    frames.append(img_tensor[i])
+
+        total = len(frames) if frames else (len(text) if text else 0)
+        if total == 0:
+            return ()
+
+        # Normalize texts: broadcast single or 1:1 map
+        texts = None
+        if text is not None:
+            if len(text) == 1:
+                texts = [text[0]] * total
+            elif len(text) == total:
+                texts = text
+            else:
+                print(f"[SaveFile] Text count ({len(text)}) != image count ({total}), broadcasting first")
+                texts = [text[0]] * total
+
+        # Find next counter — scan both .txt and .png
+        pattern = re.compile(r"^" + re.escape(prefix) + r"_(\d+)\.(txt|png)$")
+        max_num = 0
+        for fname in os.listdir(save_dir):
+            m = pattern.match(fname)
+            if m:
+                max_num = max(max_num, int(m.group(1)))
+
+        for i in range(total):
+            counter = max_num + 1 + i
+
+            if frames:
+                img_np = (frames[i].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
+                img_path = os.path.join(save_dir, f"{prefix}_{counter:04d}.png")
+                try:
+                    PILImage.fromarray(img_np).save(img_path)
+                    print(f"[SaveFile] Saved image: {img_path}")
+                except Exception as e:
+                    print(f"[SaveFile] Error saving image '{img_path}': {e}")
+
+            if texts is not None:
+                txt_path = os.path.join(save_dir, f"{prefix}_{counter:04d}.txt")
+                try:
+                    with open(txt_path, "w", encoding="utf-8") as f:
+                        f.write(texts[i])
+                    print(f"[SaveFile] Saved text: {txt_path}")
+                except Exception as e:
+                    print(f"[SaveFile] Error saving text '{txt_path}': {e}")
+
+        return ()
 
 
 class LoadImageListNode:
+    MAX_IMAGES = 20
+
     @classmethod
     def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "filenames": ("STRING", {"default": "", "multiline": True}),
-            }
+        import os
+        import folder_paths
+        input_dir = folder_paths.get_input_directory()
+        image_exts = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tiff', '.tif'}
+        files = sorted([
+            f for f in os.listdir(input_dir)
+            if os.path.isfile(os.path.join(input_dir, f))
+            and os.path.splitext(f)[1].lower() in image_exts
+        ])
+        file_list = ["[none]"] + files
+
+        required = {
+            "count": ("INT", {"default": 1, "min": 1, "max": cls.MAX_IMAGES, "step": 1}),
+            "image_1": (file_list,),
         }
+        optional = {
+            f"image_{i}": (file_list,)
+            for i in range(2, cls.MAX_IMAGES + 1)
+        }
+        return {"required": required, "optional": optional}
 
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("images",)
@@ -167,7 +259,7 @@ class LoadImageListNode:
     FUNCTION = "load"
     CATEGORY = "IXIWORKS/Utils"
 
-    def load(self, filenames):
+    def load(self, count, image_1, **kwargs):
         import os
         import numpy as np
         import torch
@@ -175,19 +267,23 @@ class LoadImageListNode:
         import folder_paths
 
         input_dir = folder_paths.get_input_directory()
-        names = [n.strip() for n in filenames.split(",") if n.strip()]
+        slots = [image_1] + [kwargs.get(f"image_{i}", "[none]") for i in range(2, count + 1)]
 
         images = []
-        for name in names:
+        for name in slots:
+            if name == "[none]":
+                continue
             path = os.path.join(input_dir, name)
-            img = Image.open(path).convert("RGB")
-            img_array = np.array(img).astype(np.float32) / 255.0
-            img_tensor = torch.from_numpy(img_array).unsqueeze(0)
-            images.append(img_tensor)
+            try:
+                img = Image.open(path).convert("RGB")
+                img_array = np.array(img).astype(np.float32) / 255.0
+                img_tensor = torch.from_numpy(img_array).unsqueeze(0)
+                images.append(img_tensor)
+            except Exception as e:
+                print(f"[LoadImageList] Error loading '{name}': {e}")
 
         if not images:
-            blank = torch.zeros(1, 64, 64, 3)
-            images.append(blank)
+            images.append(torch.zeros(1, 64, 64, 3))
 
         return (images,)
 
@@ -222,6 +318,75 @@ class ImageToListNode:
         return (result,)
 
 
+class JsonToStringListNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "file_path": ("STRING", {"default": ""}),
+            },
+            "optional": {
+                "json_string": ("STRING", {"forceInput": True}),
+                "key": ("STRING", {"default": ""}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING", "INT")
+    RETURN_NAMES = ("strings", "count")
+    OUTPUT_IS_LIST = (True, False)
+    FUNCTION = "load"
+    CATEGORY = "IXIWORKS/Utils"
+
+    def load(self, file_path, json_string=None, key=""):
+        import json
+        import os
+        import folder_paths
+
+        # Load JSON
+        if json_string is not None and json_string.strip():
+            data = json.loads(json_string)
+        elif file_path.strip():
+            path = file_path if os.path.isabs(file_path) else os.path.join(folder_paths.get_input_directory(), file_path)
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            return ([""], 0)
+
+        # Navigate dot-notation key
+        node = data
+        if key.strip():
+            for part in key.strip().split("."):
+                if isinstance(node, dict):
+                    node = node.get(part)
+                elif isinstance(node, list):
+                    try:
+                        node = node[int(part)]
+                    except (ValueError, IndexError):
+                        node = None
+                if node is None:
+                    break
+
+        # Flatten to string list
+        if isinstance(node, dict):
+            values = list(node.values())
+        elif isinstance(node, list):
+            values = node
+        else:
+            values = [node]
+
+        result = []
+        for v in values:
+            if v is None:
+                continue
+            result.append(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))
+
+        if not result:
+            return ([""], 0)
+
+        print(f"[JsonToStringList] Loaded {len(result)} items (key='{key}')")
+        return (result, len(result))
+
+
 ASPECT_RATIOS = {
     "21:9": (21, 9),
     "1.85:1": (1.85, 1),
@@ -240,6 +405,7 @@ class EmptyLatentRatioNode:
                 "long_side": ("INT", {
                     "default": 1024, "min": 256, "max": 4096, "step": 64,
                 }),
+                "channels": (["16", "4"], {"default": "16"}),
                 "batch_size": ("INT", {
                     "default": 1, "min": 1, "max": 64,
                 }),
@@ -251,7 +417,7 @@ class EmptyLatentRatioNode:
     FUNCTION = "generate"
     CATEGORY = "IXIWORKS/Utils"
 
-    def generate(self, ratio, long_side, batch_size):
+    def generate(self, ratio, long_side, channels, batch_size):
         import torch
 
         w_ratio, h_ratio = ASPECT_RATIOS[ratio]
@@ -267,7 +433,8 @@ class EmptyLatentRatioNode:
         width = (width // 8) * 8
         height = (height // 8) * 8
 
-        latent = torch.zeros([batch_size, 4, height // 8, width // 8])
+        c = int(channels)
+        latent = torch.zeros([batch_size, c, height // 8, width // 8])
         return ({"samples": latent}, width, height)
 
 
@@ -293,25 +460,27 @@ class BypassNode:
 
 
 NODE_CLASS_MAPPINGS = {
-    "SwitchBoolean": SwitchBooleanNode,
-    "StringToList": StringToListNode,
-    "ConcatStrings": JoinStringsNode,
-    "SwitchCase": SwitchCaseNode,
-    "SaveText": SaveTextNode,
-    "LoadImageList": LoadImageListNode,
-    "ImageToList": ImageToListNode,
-    "Bypass": BypassNode,
-    "EmptyLatentRatio": EmptyLatentRatioNode,
+    "UtilSwitch": SwitchBooleanNode,
+    "UtilStringToList": StringToListNode,
+    "UtilConcatStrings": JoinStringsNode,
+    "UtilSwitchCase": SwitchCaseNode,
+    "UtilSaveFile": SaveFileNode,
+    "UtilLoadImageList": LoadImageListNode,
+    "UtilImageToList": ImageToListNode,
+    "UtilBypass": BypassNode,
+    "UtilEmptyLatent": EmptyLatentRatioNode,
+    "UtilJsonToList": JsonToStringListNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SwitchBoolean": "Switch (Utils)",
-    "StringToList": "String to List (Utils)",
-    "ConcatStrings": "Concat Strings (Utils)",
-    "SwitchCase": "Switch Case (Utils)",
-    "SaveText": "Save Text (Utils)",
-    "LoadImageList": "Load Image List (Utils)",
-    "ImageToList": "Image to List (Utils)",
-    "Bypass": "Bypass (Utils)",
-    "EmptyLatentRatio": "Empty Latent (Ratio)",
+    "UtilSwitch": "Switch",
+    "UtilStringToList": "String to List",
+    "UtilConcatStrings": "Concat Strings",
+    "UtilSwitchCase": "Switch Case",
+    "UtilSaveFile": "Save Text & Image",
+    "UtilLoadImageList": "Load Image List",
+    "UtilImageToList": "Image to List",
+    "UtilBypass": "Bypass",
+    "UtilEmptyLatent": "Empty Latent",
+    "UtilJsonToList": "JSON to List",
 }

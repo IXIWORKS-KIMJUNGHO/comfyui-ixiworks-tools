@@ -34,7 +34,7 @@ class JsonParserNode:
     RETURN_TYPES = ("ZIPPED_PROMPT", "ZIPPED_PROMPT", "INT")
     RETURN_NAMES = ("zipped_prompt", "zipped_character", "count")
     FUNCTION = "parse_text"
-    CATEGORY = "StoryBoard"
+    CATEGORY = "IXIWORKS/StoryBoard"
     OUTPUT_IS_LIST = (True, True, False)
 
     @classmethod
@@ -49,7 +49,7 @@ class JsonParserNode:
         # Use registered folder path
         file_path = folder_paths.get_full_path("storyboard_prompts", JSON)
         if not file_path or not os.path.exists(file_path):
-            logger.error(f"[StoryBoard] JsonParserNode: File not found '{json_file}'")
+            logger.error(f"[StoryBoard] JsonParserNode: File not found '{JSON}'")
             return ([("", "", "", "")], [("", "", "", "", "", "")], 0)
 
         logger.info(f"[StoryBoard] JsonParserNode: file path '{file_path}'")
@@ -111,50 +111,48 @@ class BuildCharacterPromptNode:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("character_prompt",)
     FUNCTION = "build_character_prompt"
-    CATEGORY = "StoryBoard"
-    OUTPUT_IS_LIST = (False,)
+    CATEGORY = "IXIWORKS/StoryBoard"
+    INPUT_IS_LIST = True
+    OUTPUT_IS_LIST = (True,)
 
     def build_character_prompt(self, zipped_character):
-        character_prompts = []
+        results = []
+        items = zipped_character if isinstance(zipped_character, list) else [zipped_character]
+        for char_data in items:
+            if isinstance(char_data, tuple) and len(char_data) >= 6 and isinstance(char_data[0], str):
+                main_char_en_name = char_data[1]
+                sub_char_en_name = char_data[3]
+                main_char_desc = char_data[4]
+                sub_char_desc = char_data[5]
 
-        # ComfyUI passes each tuple individually when OUTPUT_IS_LIST is True
-        # So zipped_character is a single tuple, not a list of tuples
-        if isinstance(zipped_character, tuple) and len(zipped_character) >= 6 and isinstance(zipped_character[0], str):
-            # Single character data tuple
-            char_data = zipped_character
-            main_char_en_name = char_data[1]
-            sub_char_en_name = char_data[3]
-            main_char_desc = char_data[4]
-            sub_char_desc = char_data[5]
+                # Build natural language character descriptions
+                char_descriptions = []
 
-            # Build natural language character descriptions
-            char_descriptions = []
+                if main_char_en_name and main_char_desc:
+                    desc = main_char_desc.lower()
+                    if desc.startswith("a ") or desc.startswith("an "):
+                        char_descriptions.append(f"{main_char_en_name} is {desc}")
+                    elif desc.startswith("female") or desc.startswith("male"):
+                        char_descriptions.append(f"{main_char_en_name} is a {desc}")
+                    else:
+                        char_descriptions.append(f"{main_char_en_name} is {desc}")
 
-            if main_char_en_name and main_char_desc:
-                desc = main_char_desc.lower()
-                if desc.startswith("a ") or desc.startswith("an "):
-                    char_descriptions.append(f"{main_char_en_name} is {desc}")
-                elif desc.startswith("female") or desc.startswith("male"):
-                    char_descriptions.append(f"{main_char_en_name} is a {desc}")
-                else:
-                    char_descriptions.append(f"{main_char_en_name} is {desc}")
+                if sub_char_en_name and sub_char_desc:
+                    desc = sub_char_desc.lower()
+                    if desc.startswith("a ") or desc.startswith("an "):
+                        char_descriptions.append(f"{sub_char_en_name} is {desc}")
+                    elif desc.startswith("humanoid") or desc.startswith("robot"):
+                        char_descriptions.append(f"{sub_char_en_name} is a {desc}")
+                    else:
+                        char_descriptions.append(f"{sub_char_en_name} is {desc}")
 
-            if sub_char_en_name and sub_char_desc:
-                desc = sub_char_desc.lower()
-                if desc.startswith("a ") or desc.startswith("an "):
-                    char_descriptions.append(f"{sub_char_en_name} is {desc}")
-                elif desc.startswith("humanoid") or desc.startswith("robot"):
-                    char_descriptions.append(f"{sub_char_en_name} is a {desc}")
-                else:
-                    char_descriptions.append(f"{sub_char_en_name} is {desc}")
-
-            character_prompt = ". ".join(char_descriptions) + "." if char_descriptions else ""
-            logger.info(f"[StoryBoard] BuildCharacterPromptNode: Built prompt: {character_prompt}")
-            return (character_prompt,)
-
-        # Fallback: empty result
-        logger.warning(f"[StoryBoard] BuildCharacterPromptNode: Invalid input format")
-        return ("",)
+                character_prompt = ". ".join(char_descriptions) + "." if char_descriptions else ""
+                logger.info(f"[StoryBoard] BuildCharacterPromptNode: Built prompt: {character_prompt}")
+                results.append(character_prompt)
+            else:
+                logger.warning(f"[StoryBoard] BuildCharacterPromptNode: Invalid input format")
+                results.append("")
+        return (results,)
 
 
 class BuildPromptNode:
@@ -165,7 +163,8 @@ class BuildPromptNode:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("prompt",)
     FUNCTION = "build_prompt"
-    CATEGORY = "StoryBoard"
+    INPUT_IS_LIST = True
+    CATEGORY = "IXIWORKS/StoryBoard"
     OUTPUT_IS_LIST = (True,)
 
     def build_prompt(self, zipped_prompt):
@@ -209,19 +208,21 @@ class SelectIndexNode:
     RETURN_TYPES = ("ZIPPED_PROMPT",)
     RETURN_NAMES = ("selected_prompt",)
     FUNCTION = "select_index"
-    CATEGORY = "StoryBoard"
+    CATEGORY = "IXIWORKS/StoryBoard"
+    INPUT_IS_LIST = True
     OUTPUT_IS_LIST = (False,)
 
     def select_index(self, zipped_prompt, index):
-        logger.info(f"[StoryBoard] SelectIndexNode: Selecting index {index} from {len(zipped_prompt)} items")
+        idx = index[0] if isinstance(index, list) else index
+        logger.info(f"[StoryBoard] SelectIndexNode: Selecting index {idx} from {len(zipped_prompt)} items")
 
-        if index < 0 or index >= len(zipped_prompt):
-            logger.error(f"[StoryBoard] SelectIndexNode: Index {index} out of range (0-{len(zipped_prompt)-1})")
+        if idx < 0 or idx >= len(zipped_prompt):
+            logger.error(f"[StoryBoard] SelectIndexNode: Index {idx} out of range (0-{len(zipped_prompt)-1})")
             # Return empty tuple if index is out of range
             return (("", "", "", ""),)
 
-        selected = zipped_prompt[index]
-        logger.info(f"[StoryBoard] SelectIndexNode: Selected item at index {index}")
+        selected = zipped_prompt[idx]
+        logger.info(f"[StoryBoard] SelectIndexNode: Selected item at index {idx}")
 
         return (selected,)
 
@@ -242,10 +243,12 @@ class MergeStringsNode:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("merged_strings",)
     FUNCTION = "merge_strings"
-    CATEGORY = "StoryBoard"
+    CATEGORY = "IXIWORKS/StoryBoard"
+    INPUT_IS_LIST = True
     OUTPUT_IS_LIST = (True,)
 
     def merge_strings(self, strings_a, strings_b, separator=" "):
+        sep = separator[0] if isinstance(separator, list) else separator
         # Ensure inputs are lists
         if not isinstance(strings_a, list):
             strings_a = [strings_a]
@@ -266,10 +269,10 @@ class MergeStringsNode:
 
         for i in range(min_length):
             # Merge with separator
-            merged = f"{strings_a[i]}{separator}{strings_b[i]}"
+            merged = f"{strings_a[i]}{sep}{strings_b[i]}"
 
             # Clean up multiple spaces if separator is space
-            if separator == " ":
+            if sep == " ":
                 merged = " ".join(merged.split())
 
             merged_strings.append(merged)
@@ -305,9 +308,52 @@ LORA_STYLE_PRESETS = {
     },
 }
 
+CONTROLNET_FILTER_PRESETS = {
+    "pose": {
+        "extra_removals": [
+            "Body postures: standing, sitting, kneeling, lying down, crouching, leaning, bending, squatting",
+            "Actions/movements: walking, running, jumping, dancing, waving, reaching, stretching",
+            "Arm positions: arms crossed, arms raised, arms akimbo, hands on hips, pointing, holding, arms behind back",
+            "Hand gestures: peace sign, thumbs up, fist, open palm, clasped hands",
+            "Leg positions: legs crossed, one leg raised, spread legs, kicking",
+            "Head/gaze direction: looking at viewer, looking away, looking up/down/left/right, head tilted, turned head",
+            "Full body descriptors: full body pose, dynamic pose, action pose, relaxed pose, tense pose",
+        ],
+        "keep_extras": [
+            "Facial expressions: smiling, serious, surprised, angry, sad",
+            "Depth cues: bokeh, depth of field, shallow/deep focus, foreground/background blur",
+            "Clothing and outfit descriptions",
+            "Scene descriptions, lighting, colors, background",
+        ],
+    },
+    "depth": {
+        "extra_removals": [
+            "Depth-of-field effects: bokeh, shallow focus, deep focus, tilt-shift, rack focus",
+            "Foreground/background blur, lens blur, gaussian blur",
+            "Depth cues: foreground element, background separation, layered depth",
+        ],
+        "keep_extras": [
+            "Body postures and actions: standing, sitting, walking, dynamic pose, etc.",
+            "Gaze direction: looking at viewer, looking away, etc.",
+            "Facial expressions, clothing, colors, lighting",
+            "Scene descriptions and background details",
+        ],
+    },
+    "canny": {
+        "extra_removals": [],
+        "keep_extras": [
+            "Body postures and actions: standing, sitting, walking, dynamic pose, etc.",
+            "Gaze direction: looking at viewer, looking away, etc.",
+            "Depth cues: bokeh, depth of field, shallow/deep focus",
+            "Facial expressions, clothing, colors, lighting",
+            "Scene descriptions and background details",
+        ],
+    },
+}
 
-class PromptStyleFilterNode:
-    """Filter prompt to remove conflicting keywords for specific LoRA styles using Claude API."""
+
+class SBPromptFilter:
+    """Filter prompt to remove conflicting keywords for specific LoRA styles or ControlNet types using Claude API."""
 
     SEPARATOR = "\n---PROMPT_SEPARATOR---\n"
 
@@ -316,7 +362,9 @@ class PromptStyleFilterNode:
         return {
             "required": {
                 "prompt": ("STRING", {"forceInput": True}),
-                "lora_style": (list(LORA_STYLE_PRESETS.keys()),),
+                "filter_mode": (["style", "controlnet"],),
+                "style_type": (list(LORA_STYLE_PRESETS.keys()),),
+                "controlnet_type": (list(CONTROLNET_FILTER_PRESETS.keys()),),
                 "api_key": ("STRING", {"default": ""}),
             },
         }
@@ -324,20 +372,53 @@ class PromptStyleFilterNode:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("filtered_prompt",)
     FUNCTION = "filter_prompt"
-    CATEGORY = "StoryBoard"
+    CATEGORY = "IXIWORKS/StoryBoard"
     INPUT_IS_LIST = True
     OUTPUT_IS_LIST = (True,)
 
-    def filter_prompt(self, prompt, lora_style, api_key):
-        # Handle list inputs
-        style = lora_style[0] if isinstance(lora_style, list) else lora_style
-        key = api_key[0] if isinstance(api_key, list) else api_key
-        prompts = prompt if isinstance(prompt, list) else [prompt]
+    @staticmethod
+    def _build_controlnet_system_prompt(preset_key):
+        preset = CONTROLNET_FILTER_PRESETS[preset_key]
 
-        if not key:
-            logger.warning("[StoryBoard] PromptStyleFilterNode: No API key provided, returning original prompts")
-            return (prompts,)
+        # Common removals for all ControlNet types
+        common_removals = [
+            "Camera angles/perspective: low angle, high angle, eye level, bird's eye view, worm's eye view, dutch angle, overhead shot",
+            "Camera framing/shot types: wide shot, medium shot, close-up, extreme close-up, full shot, cowboy shot, establishing shot",
+            "Spatial composition: rule of thirds, centered, off-center, leading lines, symmetrical, diagonal composition, golden ratio",
+            "Subject orientation: from behind, from side, profile view, back view, three-quarter view, frontal view, facing camera",
+            "Number/arrangement of people: 1girl, 2boys, group, crowd, solo, duo, trio, multiple girls/boys",
+        ]
 
+        # Preset-specific extra removals
+        extra_removals = preset["extra_removals"]
+
+        # Build removal section
+        all_removals = common_removals + extra_removals
+        removal_lines = "\n".join(f"- {r}" for r in all_removals)
+
+        # Build keep section
+        keep_lines = "\n".join(f"- {k}" for k in preset["keep_extras"])
+
+        return f"""You are a prompt optimizer that removes spatial/compositional keywords when using {preset_key} ControlNet.
+
+Principle: ControlNet handles spatial information (composition, angles, arrangement). The prompt should focus on SUBJECT details (appearance, expression, clothing, atmosphere).
+
+## REMOVE these keywords (ControlNet handles them):
+{removal_lines}
+
+## KEEP these (do NOT remove):
+{keep_lines}
+
+## Rules:
+- Remove keywords smoothly; do not leave trailing commas or awkward gaps
+- Keep the prompt natural and coherent after removing keywords
+- Do NOT add new keywords that were not in the original prompt
+
+## Output Format:
+- Multiple prompts separated by "---PROMPT_SEPARATOR---"
+- Format: [1] filtered_prompt"""
+
+    def _filter_style(self, prompts, style, key):
         style_info = LORA_STYLE_PRESETS.get(style, {})
         style_name = style_info.get("name", style)
         color_mode = style_info.get("color_mode", "full-color")
@@ -493,11 +574,14 @@ These keywords override LoRA styles and MUST be removed."""
 - Format: [1] filtered_prompt
 - Place style-defining keywords at the START of each prompt"""
 
+        else:
+            return (prompts,)
+
         try:
             import anthropic
             client = anthropic.Anthropic(api_key=key)
 
-            logger.info(f"[StoryBoard] PromptStyleFilterNode: Filtering {len(prompts)} prompts with style '{style_name}' (color_mode: {color_mode})")
+            logger.info(f"[StoryBoard] SBPromptFilter: Filtering {len(prompts)} prompts with style '{style_name}' (color_mode: {color_mode})")
 
             response = client.messages.create(
                 model="claude-haiku-4-5-20251001",
@@ -509,7 +593,7 @@ These keywords override LoRA styles and MUST be removed."""
             )
 
             result_text = response.content[0].text.strip()
-            logger.info(f"[StoryBoard] PromptStyleFilterNode: Received response from Claude API")
+            logger.info(f"[StoryBoard] SBPromptFilter: Received response from Claude API")
 
             # Split and parse results
             filtered_results = []
@@ -527,105 +611,54 @@ These keywords override LoRA styles and MUST be removed."""
 
             # Ensure we have the same number of outputs
             if len(filtered_results) != len(prompts):
-                logger.warning(f"[StoryBoard] PromptStyleFilterNode: Output count mismatch ({len(filtered_results)} vs {len(prompts)}), returning originals")
+                logger.warning(f"[StoryBoard] SBPromptFilter: Output count mismatch ({len(filtered_results)} vs {len(prompts)}), returning originals")
                 return (prompts,)
 
             # Prepend add_keywords to each result for stronger LoRA trigger
             if add_keywords:
                 filtered_results = [f"{add_keywords}, {r}" for r in filtered_results]
-                logger.info(f"[StoryBoard] PromptStyleFilterNode: Prepended keywords: '{add_keywords}'")
+                logger.info(f"[StoryBoard] SBPromptFilter: Prepended keywords: '{add_keywords}'")
 
             # Log each filtered result (truncated for readability)
             for i, (orig, filtered) in enumerate(zip(prompts, filtered_results)):
                 orig_preview = orig[:50] + "..." if len(orig) > 50 else orig
                 filtered_preview = filtered[:80] + "..." if len(filtered) > 80 else filtered
-                logger.info(f"[StoryBoard] PromptStyleFilterNode: [{i+1}] {orig_preview} → {filtered_preview}")
+                logger.info(f"[StoryBoard] SBPromptFilter: [{i+1}] {orig_preview} → {filtered_preview}")
 
-            logger.info(f"[StoryBoard] PromptStyleFilterNode: Done - {len(filtered_results)} prompts filtered for '{style_name}'")
+            logger.info(f"[StoryBoard] SBPromptFilter: Done - {len(filtered_results)} prompts filtered for '{style_name}'")
             return (filtered_results,)
 
         except ImportError:
-            logger.error("[StoryBoard] PromptStyleFilterNode: anthropic package not installed")
+            logger.error("[StoryBoard] SBPromptFilter: anthropic package not installed")
             return (prompts,)
         except Exception as e:
-            logger.error(f"[StoryBoard] PromptStyleFilterNode: API error - {e}")
+            logger.error(f"[StoryBoard] SBPromptFilter: API error - {e}")
             return (prompts,)
 
-
-class PromptPoseFilterNode:
-    """Filter pose-related keywords from prompt when using Pose ControlNet."""
-
-    SEPARATOR = "\n---PROMPT_SEPARATOR---\n"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "prompt": ("STRING", {"forceInput": True}),
-                "api_key": ("STRING", {"default": ""}),
-            },
-        }
-
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("filtered_prompt",)
-    FUNCTION = "filter_prompt"
-    CATEGORY = "StoryBoard"
-    INPUT_IS_LIST = True
-    OUTPUT_IS_LIST = (True,)
-
-    def filter_prompt(self, prompt, api_key):
-        # Handle list inputs
-        key = api_key[0] if isinstance(api_key, list) else api_key
-        prompts = prompt if isinstance(prompt, list) else [prompt]
-
-        if not key:
-            logger.warning("[StoryBoard] PromptPoseFilterNode: No API key provided, returning original prompts")
-            return (prompts,)
+    def _filter_controlnet(self, prompts, cn_type, key):
+        system_prompt = self._build_controlnet_system_prompt(cn_type)
 
         # Combine all prompts with separator
         combined_input = self.SEPARATOR.join([f"[{i+1}] {p}" for i, p in enumerate(prompts)])
-
-        system_prompt = """You are a prompt optimizer that removes pose-related keywords for Pose ControlNet usage.
-
-## REMOVE these pose/posture keywords:
-- Body postures: standing, sitting, kneeling, lying down, crouching, leaning, bending, squatting
-- Actions/movements: walking, running, jumping, dancing, waving, reaching, stretching
-- Arm positions: arms crossed, arms raised, arms akimbo, hands on hips, pointing, holding, arms behind back
-- Hand gestures: peace sign, thumbs up, fist, open palm, clasped hands
-- Leg positions: legs crossed, one leg raised, spread legs, kicking
-- Head/gaze direction: looking at viewer, looking away, looking up, looking down, looking left/right, head tilted, turned head
-- Body orientation: from behind, from side, profile view, back view, three-quarter view
-- Full body descriptors: full body pose, dynamic pose, action pose, relaxed pose, tense pose
-
-## KEEP these (do NOT remove):
-- Camera angles: low angle, high angle, eye level, bird's eye view, worm's eye view
-- Camera shots: wide shot, medium shot, close-up, extreme close-up, full shot
-- Composition: rule of thirds, centered, off-center, leading lines
-- Facial expressions: smiling, serious, surprised, angry, sad (expressions are NOT poses)
-- Scene descriptions, lighting, colors, clothing, background
-
-## Output Format:
-- Multiple prompts separated by "---PROMPT_SEPARATOR---"
-- Format: [1] filtered_prompt
-- Keep the prompt natural and coherent after removing pose keywords"""
 
         try:
             import anthropic
             client = anthropic.Anthropic(api_key=key)
 
-            logger.info(f"[StoryBoard] PromptPoseFilterNode: Filtering {len(prompts)} prompts for pose keywords")
+            logger.info(f"[StoryBoard] SBPromptFilter: Filtering {len(prompts)} prompts for '{cn_type}' ControlNet")
+            logger.debug(f"[StoryBoard] SBPromptFilter: System prompt:\n{system_prompt}")
 
             response = client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=4096,
                 system=system_prompt,
                 messages=[
-                    {"role": "user", "content": f"Remove pose keywords from these prompts:\n\n{combined_input}"}
+                    {"role": "user", "content": f"Filter these prompts for {cn_type} ControlNet usage:\n\n{combined_input}"}
                 ]
             )
 
             result_text = response.content[0].text.strip()
-            logger.info(f"[StoryBoard] PromptPoseFilterNode: Received response from Claude API")
+            logger.info(f"[StoryBoard] SBPromptFilter: Received response from Claude API")
 
             # Split and parse results
             filtered_results = []
@@ -643,44 +676,59 @@ class PromptPoseFilterNode:
 
             # Ensure we have the same number of outputs
             if len(filtered_results) != len(prompts):
-                logger.warning(f"[StoryBoard] PromptPoseFilterNode: Output count mismatch ({len(filtered_results)} vs {len(prompts)}), returning originals")
+                logger.warning(f"[StoryBoard] SBPromptFilter: Output count mismatch ({len(filtered_results)} vs {len(prompts)}), returning originals")
                 return (prompts,)
 
             # Log each filtered result (truncated for readability)
             for i, (orig, filtered) in enumerate(zip(prompts, filtered_results)):
                 orig_preview = orig[:50] + "..." if len(orig) > 50 else orig
                 filtered_preview = filtered[:80] + "..." if len(filtered) > 80 else filtered
-                logger.info(f"[StoryBoard] PromptPoseFilterNode: [{i+1}] {orig_preview} → {filtered_preview}")
+                logger.info(f"[StoryBoard] SBPromptFilter: [{i+1}] {orig_preview} → {filtered_preview}")
 
-            logger.info(f"[StoryBoard] PromptPoseFilterNode: Done - {len(filtered_results)} prompts filtered")
+            logger.info(f"[StoryBoard] SBPromptFilter: Done - {len(filtered_results)} prompts filtered for '{cn_type}'")
             return (filtered_results,)
 
         except ImportError:
-            logger.error("[StoryBoard] PromptPoseFilterNode: anthropic package not installed")
+            logger.error("[StoryBoard] SBPromptFilter: anthropic package not installed")
             return (prompts,)
         except Exception as e:
-            logger.error(f"[StoryBoard] PromptPoseFilterNode: API error - {e}")
+            logger.error(f"[StoryBoard] SBPromptFilter: API error - {e}")
             return (prompts,)
+
+    def filter_prompt(self, prompt, filter_mode, style_type, controlnet_type, api_key):
+        # Handle list inputs
+        mode = filter_mode[0] if isinstance(filter_mode, list) else filter_mode
+        style = style_type[0] if isinstance(style_type, list) else style_type
+        cn_type = controlnet_type[0] if isinstance(controlnet_type, list) else controlnet_type
+        key = api_key[0] if isinstance(api_key, list) else api_key
+        prompts = prompt if isinstance(prompt, list) else [prompt]
+
+        if not key:
+            logger.warning("[StoryBoard] SBPromptFilter: No API key provided, returning original prompts")
+            return (prompts,)
+
+        if mode == "style":
+            return self._filter_style(prompts, style, key)
+        else:
+            return self._filter_controlnet(prompts, cn_type, key)
 
 
 # Node class mappings for ComfyUI
 NODE_CLASS_MAPPINGS = {
-    "JsonParserNode": JsonParserNode,
-    "BuildPromptNode": BuildPromptNode,
-    "BuildCharacterPromptNode": BuildCharacterPromptNode,
-    "SelectIndexNode": SelectIndexNode,
-    "MergeStringsNode": MergeStringsNode,
-    "PromptStyleFilter": PromptStyleFilterNode,
-    "PromptPoseFilter": PromptPoseFilterNode,
+    "SBJsonParser": JsonParserNode,
+    "SBPromptBuilder": BuildPromptNode,
+    "SBCharacterPrompt": BuildCharacterPromptNode,
+    "SBSelectCut": SelectIndexNode,
+    "SBMergeStrings": MergeStringsNode,
+    "SBPromptFilter": SBPromptFilter,
 }
 
 # Display name mappings for ComfyUI UI
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "JsonParserNode": "JSON Parser (StoryBoard)",
-    "BuildPromptNode": "Build Prompt (StoryBoard)",
-    "BuildCharacterPromptNode": "Build Character Prompt (StoryBoard)",
-    "SelectIndexNode": "Select Index (StoryBoard)",
-    "MergeStringsNode": "Merge Strings (StoryBoard)",
-    "PromptStyleFilter": "Prompt Style Filter (StoryBoard)",
-    "PromptPoseFilter": "Prompt Pose Filter (StoryBoard)",
+    "SBJsonParser": "SB JSON Parser",
+    "SBPromptBuilder": "SB Prompt Builder",
+    "SBCharacterPrompt": "SB Character Prompt",
+    "SBSelectCut": "Select Cut",
+    "SBMergeStrings": "SB Merge Strings",
+    "SBPromptFilter": "SB Prompt Filter",
 }

@@ -4,7 +4,7 @@ app.registerExtension({
     name: "IXIWORKS.StringToList",
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name !== "StringToList") return;
+        if (nodeData.name !== "UtilStringToList") return;
 
         const origCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {

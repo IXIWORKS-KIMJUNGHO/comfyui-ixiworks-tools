@@ -81,7 +81,7 @@ class LineartDetector:
         from huggingface_hub import hf_hub_download
         ckpt_path = hf_hub_download("lllyasviel/Annotators", "sk_model.pth")
         model = Generator(3, 1, 3)
-        model.load_state_dict(torch.load(ckpt_path, map_location="cpu"))
+        model.load_state_dict(torch.load(ckpt_path, map_location="cpu", weights_only=True))
         model.eval()
         return cls(model)
 

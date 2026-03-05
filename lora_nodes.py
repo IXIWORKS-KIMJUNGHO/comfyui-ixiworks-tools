@@ -162,9 +162,9 @@ class LoraLoaderAdvancedNode:
 
 
 NODE_CLASS_MAPPINGS = {
-    "LoraLoaderAdvanced": LoraLoaderAdvancedNode,
+    "LoRAStepLoader": LoraLoaderAdvancedNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "LoraLoaderAdvanced": "LoRA Step Loader",
+    "LoRAStepLoader": "LoRA Step Loader",
 }

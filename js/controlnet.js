@@ -4,7 +4,7 @@ app.registerExtension({
     name: "IXIWORKS.ControlNetPreprocessor",
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name !== "ControlNetPreprocessor") return;
+        if (nodeData.name !== "CNPreprocessor") return;
 
         const origCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
@@ -30,9 +30,10 @@ app.registerExtension({
             for (const w of this.widgets) {
                 if (w.name === "low_threshold" || w.name === "high_threshold") {
                     if (isCanny) {
-                        w.type = "number";
+                        w.type = w._savedType || w.type;
                         w.computeSize = undefined;
                     } else {
+                        if (!w._savedType) w._savedType = w.type;
                         w.type = "hidden";
                         w.computeSize = () => [0, -4];
                     }

@@ -278,7 +278,7 @@ class MLSDdetector:
         repo = pretrained_model_or_path or "lllyasviel/Annotators"
         model_path = hf_hub_download(repo, "mlsd_large_512_fp32.pth")
         model = _MobileV2_MLSD_Large()
-        model.load_state_dict(torch.load(model_path, map_location="cpu"), strict=True)
+        model.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True), strict=True)
         model.eval()
         return cls(model)
 

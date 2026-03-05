@@ -200,7 +200,7 @@ class VideoDescriptionQwen3VL:
     RETURN_TYPES = ("STRING", "STRING")
     RETURN_NAMES = ("description", "info")
     FUNCTION = "describe_video"
-    CATEGORY = "video"
+    CATEGORY = "IXIWORKS/Video"
 
     def describe_video(self, video_path, analysis_type, fps, custom_prompt="", use_4bit=False, temperature=0.7):
         """
@@ -299,10 +299,10 @@ class VideoDescriptionQwen3VL:
 
 # Node class mappings for ComfyUI
 NODE_CLASS_MAPPINGS = {
-    "VideoDescriptionQwen3VL": VideoDescriptionQwen3VL,
+    "VideoDescribe": VideoDescriptionQwen3VL,
 }
 
 # Display name mappings for ComfyUI UI
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "VideoDescriptionQwen3VL": "Video Description (Qwen3-VL)",
+    "VideoDescribe": "Video Describe",
 }
