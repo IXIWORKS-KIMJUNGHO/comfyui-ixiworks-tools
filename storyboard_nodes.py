@@ -31,253 +31,190 @@ class JsonParserNode:
             },
         }
 
-    RETURN_TYPES = ("ZIPPED_PROMPT", "ZIPPED_PROMPT", "INT")
-    RETURN_NAMES = ("zipped_prompt", "zipped_character", "count")
-    FUNCTION = "parse_text"
+    RETURN_TYPES = ("STRING",) * 14 + ("INT",)
+    RETURN_NAMES = (
+        # Scene level
+        "time_of_day", "weather", "mood", "location",
+        # Cut level
+        "description", "camera_shot", "camera_angle", "composition",
+        "camera_movement", "lens_type", "lighting_style", "lighting_direction",
+        # Derived
+        "focus_subject", "character_prompt",
+        "count",
+    )
+    FUNCTION = "parse"
     CATEGORY = "IXIWORKS/StoryBoard"
-    OUTPUT_IS_LIST = (True, True, False)
+    OUTPUT_IS_LIST = (True,) * 14 + (False,)
 
     @classmethod
     def IS_CHANGED(s, JSON):
-        # Refresh when file changes
         file_path = folder_paths.get_full_path("storyboard_prompts", JSON)
         if file_path and os.path.exists(file_path):
             return os.path.getmtime(file_path)
         return float("nan")
 
-    def parse_text(self, JSON):
-        # Use registered folder path
+    @staticmethod
+    def _build_character_prompt(character_data, focus_subject):
+        """Build character prompt from character dict, focus subject first."""
+        if not character_data:
+            return ""
+
+        def _format_char(name, char):
+            parts = [name]
+            if char.get("appearance"):
+                parts.append(char["appearance"])
+            if char.get("costume"):
+                parts.append(char["costume"])
+            return ", ".join(parts)
+
+        segments = []
+        # Focus subject first
+        if focus_subject and focus_subject in character_data:
+            segments.append(_format_char(focus_subject, character_data[focus_subject]))
+        # Remaining characters
+        for name, char in character_data.items():
+            if name == focus_subject:
+                continue
+            segments.append(_format_char(name, char))
+
+        return ". ".join(segments)
+
+    OUTPUT_NODE = True
+
+    @staticmethod
+    def _build_preview(scene_data, character_data):
+        """Build human-readable preview text."""
+        lines = []
+        for scene_key in sorted(scene_data.keys(), key=lambda x: int(x) if x.isdigit() else x):
+            scene = scene_data[scene_key]
+            if not isinstance(scene, dict):
+                continue
+            title = scene.get("title", "")
+            ctx = ", ".join(filter(None, [scene.get("timeOfDay", ""), scene.get("weather", "")]))
+            header = f"Scene {scene_key}"
+            if title:
+                header += f": {title}"
+            if ctx:
+                header += f"  ({ctx})"
+            lines.append(header)
+
+            cuts = scene.get("cuts", {})
+            for cut_key in sorted(cuts.keys(), key=lambda x: int(x) if x.isdigit() else x):
+                cut = cuts[cut_key]
+                if not isinstance(cut, dict):
+                    continue
+                shot = cut.get("cameraShot", "")
+                desc = cut.get("description", "")
+                if len(desc) > 40:
+                    desc = desc[:37] + "..."
+                parts = filter(None, [shot, desc])
+                lines.append(f"  Cut {cut_key}: {', '.join(parts)}")
+
+        if character_data:
+            names = ", ".join(character_data.keys())
+            lines.append(f"Characters: {names}")
+
+        MAX_PREVIEW_LINES = 15
+        if len(lines) > MAX_PREVIEW_LINES:
+            lines = lines[:MAX_PREVIEW_LINES] + [f"  ... and {len(lines) - MAX_PREVIEW_LINES} more"]
+
+        return "\n".join(lines)
+
+    def parse(self, JSON):
         file_path = folder_paths.get_full_path("storyboard_prompts", JSON)
         if not file_path or not os.path.exists(file_path):
             logger.error(f"[StoryBoard] JsonParserNode: File not found '{JSON}'")
-            return ([("", "", "", "")], [("", "", "", "", "", "")], 0)
+            empty = [""]
+            return {"ui": {"preview": ["File not found"]}, "result": (*([empty] * 14), 0)}
 
         logger.info(f"[StoryBoard] JsonParserNode: file path '{file_path}'")
         try:
-            # Load the JSON file
-            with open(file_path, 'r', encoding='utf-8') as file:
-                data = json.load(file)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
 
-            scene_data = data.get('scene', {})
+            scene_data = data.get("scene", {})
+            character_data = data.get("character", {})
 
-            # Process the JSON data
-            result = []
-            character_result = []
+            # Per-cut output lists
+            descriptions = []
+            times = []
+            weathers = []
+            moods = []
+            locations = []
+            camera_shots = []
+            camera_angles = []
+            compositions = []
+            camera_movements = []
+            lens_types = []
+            lighting_styles = []
+            lighting_directions = []
+            focus_subjects = []
+            character_prompts = []
 
-            # New format (camelCase) - extract English fields only
-            for item in scene_data.values():
-                if isinstance(item, dict):
-                    # Extract scene information (English only)
-                    time = item.get("time", {}).get("en", "")
-                    weather = item.get("weather", {}).get("en", "")
-                    camera_shot = item.get("cameraShot", {}).get("en", "")
-                    camera_angle = item.get("cameraAngle", {}).get("en", "")
-                    description = item.get("description", {}).get("en", "")
-                    composition = item.get("composition", {}).get("en", "")
+            for scene_key in sorted(scene_data.keys(), key=lambda x: int(x) if x.isdigit() else x):
+                scene = scene_data[scene_key]
+                if not isinstance(scene, dict):
+                    continue
 
-                    # Combine camera shot and angle
-                    camera_info = f"{camera_shot}, {camera_angle}" if camera_angle else camera_shot
+                # Scene-level fields (shared by all cuts in this scene)
+                s_time = scene.get("timeOfDay", "")
+                s_weather = scene.get("weather", "")
+                s_mood = scene.get("mood", "")
+                s_location = scene.get("location", "")
 
-                    # Combine time and weather
-                    time_weather = f"{time}, {weather}" if time and weather else f"{time}{weather}"
+                cuts = scene.get("cuts", {})
+                for cut_key in sorted(cuts.keys(), key=lambda x: int(x) if x.isdigit() else x):
+                    cut = cuts[cut_key]
+                    if not isinstance(cut, dict):
+                        continue
 
-                    result.append((description, time_weather, camera_info, composition))
+                    descriptions.append(cut.get("description", ""))
+                    times.append(s_time)
+                    weathers.append(s_weather)
+                    moods.append(s_mood)
+                    locations.append(s_location)
+                    camera_shots.append(cut.get("cameraShot", ""))
+                    camera_angles.append(cut.get("cameraAngle", ""))
+                    compositions.append(cut.get("composition", ""))
+                    camera_movements.append(cut.get("cameraMovement", ""))
+                    lens_types.append(cut.get("lensType", ""))
+                    lighting_styles.append(cut.get("lightingStyle", ""))
+                    lighting_directions.append(cut.get("lightingDirection", ""))
 
-                    # Extract character information for each scene (camelCase)
-                    m_char = item.get("mainCharacter", {})
-                    s_char = item.get("subCharacter", {})
+                    focus = cut.get("focusSubject", "")
+                    focus_subjects.append(focus)
+                    character_prompts.append(
+                        self._build_character_prompt(character_data, focus)
+                    )
 
-                    main_char_ko_name = m_char.get("koName", "")
-                    main_char_en_name = m_char.get("enName", "")
-                    main_char_desc = m_char.get("description", "")
+            count = len(descriptions)
+            preview = self._build_preview(scene_data, character_data)
 
-                    sub_char_ko_name = s_char.get("koName", "")
-                    sub_char_en_name = s_char.get("enName", "")
-                    sub_char_desc = s_char.get("description", "")
+            if count == 0:
+                logger.warning("[StoryBoard] JsonParserNode: No cuts found in JSON")
+                empty = [""]
+                return {"ui": {"preview": [preview or "No cuts found"]}, "result": (*([empty] * 14), 0)}
 
-                    character_result.append((main_char_ko_name, main_char_en_name, sub_char_ko_name, sub_char_en_name, main_char_desc, sub_char_desc))
+            logger.info(f"[StoryBoard] JsonParserNode: Parsed {count} cuts from {len(scene_data)} scenes")
 
-            return (result, character_result, len(result))
+            return {
+                "ui": {"preview": [preview]},
+                "result": (
+                    # Scene level
+                    times, weathers, moods, locations,
+                    # Cut level
+                    descriptions, camera_shots, camera_angles, compositions,
+                    camera_movements, lens_types, lighting_styles, lighting_directions,
+                    # Derived
+                    focus_subjects, character_prompts,
+                    count,
+                ),
+            }
+
         except Exception as e:
             logger.error(f"[StoryBoard] JsonParserNode: Error reading file: {e}")
-            return ([("", "", "", "")], [("", "", "", "", "", "")], 0)
-
-
-class BuildCharacterPromptNode:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required": {"zipped_character": ("ZIPPED_PROMPT",),}}
-
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("character_prompt",)
-    FUNCTION = "build_character_prompt"
-    CATEGORY = "IXIWORKS/StoryBoard"
-    INPUT_IS_LIST = True
-    OUTPUT_IS_LIST = (True,)
-
-    def build_character_prompt(self, zipped_character):
-        results = []
-        items = zipped_character if isinstance(zipped_character, list) else [zipped_character]
-        for char_data in items:
-            if isinstance(char_data, tuple) and len(char_data) >= 6 and isinstance(char_data[0], str):
-                main_char_en_name = char_data[1]
-                sub_char_en_name = char_data[3]
-                main_char_desc = char_data[4]
-                sub_char_desc = char_data[5]
-
-                # Build natural language character descriptions
-                char_descriptions = []
-
-                if main_char_en_name and main_char_desc:
-                    desc = main_char_desc.lower()
-                    if desc.startswith("a ") or desc.startswith("an "):
-                        char_descriptions.append(f"{main_char_en_name} is {desc}")
-                    elif desc.startswith("female") or desc.startswith("male"):
-                        char_descriptions.append(f"{main_char_en_name} is a {desc}")
-                    else:
-                        char_descriptions.append(f"{main_char_en_name} is {desc}")
-
-                if sub_char_en_name and sub_char_desc:
-                    desc = sub_char_desc.lower()
-                    if desc.startswith("a ") or desc.startswith("an "):
-                        char_descriptions.append(f"{sub_char_en_name} is {desc}")
-                    elif desc.startswith("humanoid") or desc.startswith("robot"):
-                        char_descriptions.append(f"{sub_char_en_name} is a {desc}")
-                    else:
-                        char_descriptions.append(f"{sub_char_en_name} is {desc}")
-
-                character_prompt = ". ".join(char_descriptions) + "." if char_descriptions else ""
-                logger.info(f"[StoryBoard] BuildCharacterPromptNode: Built prompt: {character_prompt}")
-                results.append(character_prompt)
-            else:
-                logger.warning(f"[StoryBoard] BuildCharacterPromptNode: Invalid input format")
-                results.append("")
-        return (results,)
-
-
-class BuildPromptNode:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required": {"zipped_prompt": ("ZIPPED_PROMPT",),}}
-
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("prompt",)
-    FUNCTION = "build_prompt"
-    INPUT_IS_LIST = True
-    CATEGORY = "IXIWORKS/StoryBoard"
-    OUTPUT_IS_LIST = (True,)
-
-    def build_prompt(self, zipped_prompt):
-        prompts = []
-        logger.info(f"[StoryBoard] BuildPromptNode: Processing {len(zipped_prompt)} scenes")
-
-        # Handle both list of tuples and single tuple
-        if isinstance(zipped_prompt, tuple) and len(zipped_prompt) == 4 and all(isinstance(x, str) for x in zipped_prompt):
-            # Single tuple case (from SelectIndexNode)
-            zipped_prompt = [zipped_prompt]
-
-        for idx, item in enumerate(zipped_prompt):
-            if isinstance(item, tuple) and len(item) >= 4:
-                description = item[0]
-                time_weather = item[1]
-                camera_info = item[2]
-                composition = item[3]
-
-                # Build the prompt: camera/lighting first for stronger influence,
-                # description last (trigger_words and character are added externally)
-                parts = [p for p in [time_weather, camera_info, composition, description] if p.strip()]
-                combined_prompt = ", ".join(parts)
-
-                prompts.append(combined_prompt)
-                logger.info(f"[StoryBoard] BuildPromptNode: Built prompt for scene {idx+1}")
-
-        logger.info(f"[StoryBoard] BuildPromptNode: Generated {len(prompts)} prompts")
-        return (prompts,)
-
-
-class SelectIndexNode:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "zipped_prompt": ("ZIPPED_PROMPT",),
-                "index": ("INT", {"default": 0, "min": 0, "max": 100}),
-            }
-        }
-
-    RETURN_TYPES = ("ZIPPED_PROMPT",)
-    RETURN_NAMES = ("selected_prompt",)
-    FUNCTION = "select_index"
-    CATEGORY = "IXIWORKS/StoryBoard"
-    INPUT_IS_LIST = True
-    OUTPUT_IS_LIST = (False,)
-
-    def select_index(self, zipped_prompt, index):
-        idx = index[0] if isinstance(index, list) else index
-        logger.info(f"[StoryBoard] SelectIndexNode: Selecting index {idx} from {len(zipped_prompt)} items")
-
-        if idx < 0 or idx >= len(zipped_prompt):
-            logger.error(f"[StoryBoard] SelectIndexNode: Index {idx} out of range (0-{len(zipped_prompt)-1})")
-            # Return empty tuple if index is out of range
-            return (("", "", "", ""),)
-
-        selected = zipped_prompt[idx]
-        logger.info(f"[StoryBoard] SelectIndexNode: Selected item at index {idx}")
-
-        return (selected,)
-
-
-class MergeStringsNode:
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "strings_a": ("STRING",),
-                "strings_b": ("STRING",),
-            },
-            "optional": {
-                "separator": ("STRING", {"default": " "}),
-            }
-        }
-
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("merged_strings",)
-    FUNCTION = "merge_strings"
-    CATEGORY = "IXIWORKS/StoryBoard"
-    INPUT_IS_LIST = True
-    OUTPUT_IS_LIST = (True,)
-
-    def merge_strings(self, strings_a, strings_b, separator=" "):
-        sep = separator[0] if isinstance(separator, list) else separator
-        # Ensure inputs are lists
-        if not isinstance(strings_a, list):
-            strings_a = [strings_a]
-        if not isinstance(strings_b, list):
-            strings_b = [strings_b]
-
-        merged_strings = []
-
-        # Check if arrays have same length
-        if len(strings_a) != len(strings_b):
-            logger.warning(f"[StoryBoard] MergeStringsNode: Array lengths don't match. strings_a: {len(strings_a)}, strings_b: {len(strings_b)}")
-            # Use the shorter length
-            min_length = min(len(strings_a), len(strings_b))
-        else:
-            min_length = len(strings_a)
-
-        logger.info(f"[StoryBoard] MergeStringsNode: Merging {min_length} string pairs")
-
-        for i in range(min_length):
-            # Merge with separator
-            merged = f"{strings_a[i]}{sep}{strings_b[i]}"
-
-            # Clean up multiple spaces if separator is space
-            if sep == " ":
-                merged = " ".join(merged.split())
-
-            merged_strings.append(merged)
-
-        return (merged_strings,)
+            empty = [""]
+            return {"ui": {"preview": [f"Error: {e}"]}, "result": (*([empty] * 14), 0)}
 
 
 LORA_STYLE_PRESETS = {
@@ -418,22 +355,68 @@ Principle: ControlNet handles spatial information (composition, angles, arrangem
 - Multiple prompts separated by "---PROMPT_SEPARATOR---"
 - Format: [1] filtered_prompt"""
 
+    def _call_api(self, system_prompt, user_content, prompts, key, label="filter"):
+        """Common API call + response parsing logic."""
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=key)
+
+            logger.info(f"[StoryBoard] SBPromptFilter: Filtering {len(prompts)} prompts ({label})")
+
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=4096,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": user_content}
+                ]
+            )
+
+            result_text = response.content[0].text.strip()
+
+            # Split and parse results
+            filtered_results = []
+            parts = result_text.split("---PROMPT_SEPARATOR---")
+
+            for part in parts:
+                part = part.strip()
+                if part.startswith("["):
+                    idx = part.find("]")
+                    if idx != -1:
+                        part = part[idx+1:].strip()
+                if part:
+                    filtered_results.append(part)
+
+            if len(filtered_results) != len(prompts):
+                logger.warning(f"[StoryBoard] SBPromptFilter: Output count mismatch ({len(filtered_results)} vs {len(prompts)}), returning originals")
+                return None
+
+            for i, (orig, filtered) in enumerate(zip(prompts, filtered_results)):
+                orig_preview = orig[:50] + "..." if len(orig) > 50 else orig
+                filtered_preview = filtered[:80] + "..." if len(filtered) > 80 else filtered
+                logger.info(f"[StoryBoard] SBPromptFilter: [{i+1}] {orig_preview} → {filtered_preview}")
+
+            logger.info(f"[StoryBoard] SBPromptFilter: Done - {len(filtered_results)} prompts filtered ({label})")
+            return filtered_results
+
+        except ImportError:
+            logger.error("[StoryBoard] SBPromptFilter: anthropic package not installed")
+            return None
+        except Exception as e:
+            logger.error(f"[StoryBoard] SBPromptFilter: API error - {e}")
+            return None
+
     def _filter_style(self, prompts, style, key):
         style_info = LORA_STYLE_PRESETS.get(style, {})
         style_name = style_info.get("name", style)
         color_mode = style_info.get("color_mode", "full-color")
 
-        # Full color mode: no filtering needed
         if color_mode == "full-color":
             return (prompts,)
 
-        # Get style-specific keywords to add
         add_keywords = style_info.get("add_keywords", "")
-
-        # Combine all prompts with separator
         combined_input = self.SEPARATOR.join([f"[{i+1}] {p}" for i, p in enumerate(prompts)])
 
-        # Common instruction for all styles
         remove_realistic = """
 ## REMOVE photorealistic keywords (CRITICAL):
 - photo realistic, photorealistic, realistic, hyper realistic, hyperrealistic
@@ -450,8 +433,14 @@ These keywords override LoRA styles and MUST be removed."""
 - Subject pose and position descriptions
 - Framing descriptions"""
 
-        if color_mode == "inksketch":
-            system_prompt = f"""You are a prompt optimizer for ink sketch style image generation.
+        output_format = """
+## Output Format:
+- Multiple prompts separated by "---PROMPT_SEPARATOR---"
+- Format: [1] filtered_prompt
+- Place style-defining keywords at the START of each prompt"""
+
+        style_transforms = {
+            "inksketch": f"""You are a prompt optimizer for ink sketch style image generation.
 {remove_realistic}
 
 ## Transform these elements for ink sketch style:
@@ -466,14 +455,9 @@ These keywords override LoRA styles and MUST be removed."""
 - "bathed in sunlight" → "harsh angular shadows"
 - Keep: shadows, contrast, silhouette
 {keep_instruction}
+{output_format}""",
 
-## Output Format:
-- Multiple prompts separated by "---PROMPT_SEPARATOR---"
-- Format: [1] filtered_prompt
-- Place style-defining keywords at the START of each prompt"""
-
-        elif color_mode == "inkwash":
-            system_prompt = f"""You are a prompt optimizer for ink wash style image generation.
+            "inkwash": f"""You are a prompt optimizer for ink wash style image generation.
 {remove_realistic}
 
 ## Transform these elements for ink wash style:
@@ -490,14 +474,9 @@ These keywords override LoRA styles and MUST be removed."""
 ### Special: CONDENSE the prompt
 - Remove verbose explanations, keep core descriptions
 {keep_instruction}
+{output_format}""",
 
-## Output Format:
-- Multiple prompts separated by "---PROMPT_SEPARATOR---"
-- Format: [1] filtered_prompt
-- Place style-defining keywords at the START of each prompt"""
-
-        elif color_mode == "penink":
-            system_prompt = f"""You are a prompt optimizer for pen and ink illustration style image generation.
+            "penink": f"""You are a prompt optimizer for pen and ink illustration style image generation.
 {remove_realistic}
 
 ## Transform these elements for pen & ink style:
@@ -516,14 +495,9 @@ These keywords override LoRA styles and MUST be removed."""
 - "city street" → "cobblestone city street"
 - Add: "intricate linework on architectural details"
 {keep_instruction}
+{output_format}""",
 
-## Output Format:
-- Multiple prompts separated by "---PROMPT_SEPARATOR---"
-- Format: [1] filtered_prompt
-- Place style-defining keywords at the START of each prompt"""
-
-        elif color_mode == "inkwatercolor":
-            system_prompt = f"""You are a prompt optimizer for ink and watercolor illustration style image generation.
+            "inkwatercolor": f"""You are a prompt optimizer for ink and watercolor illustration style image generation.
 {remove_realistic}
 
 ## Transform these elements for ink watercolor style:
@@ -543,14 +517,9 @@ These keywords override LoRA styles and MUST be removed."""
 - "cafe sign" → "hand-painted cafe sign"
 - Consider adding: "a stray dog nearby", "pigeons"
 {keep_instruction}
+{output_format}""",
 
-## Output Format:
-- Multiple prompts separated by "---PROMPT_SEPARATOR---"
-- Format: [1] filtered_prompt
-- Place style-defining keywords at the START of each prompt"""
-
-        elif color_mode == "watercolorillust":
-            system_prompt = f"""You are a prompt optimizer for watercolor illustration style image generation.
+            "watercolorillust": f"""You are a prompt optimizer for watercolor illustration style image generation.
 {remove_realistic}
 
 ## Transform these elements for watercolor illustration style:
@@ -568,132 +537,40 @@ These keywords override LoRA styles and MUST be removed."""
 - "cafe sign" → "charming cafe sign with striped awning"
 - Add: "wet-on-wet blending with soft edges"
 {keep_instruction}
+{output_format}""",
+        }
 
-## Output Format:
-- Multiple prompts separated by "---PROMPT_SEPARATOR---"
-- Format: [1] filtered_prompt
-- Place style-defining keywords at the START of each prompt"""
-
-        else:
+        system_prompt = style_transforms.get(color_mode)
+        if not system_prompt:
             return (prompts,)
 
-        try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=key)
-
-            logger.info(f"[StoryBoard] SBPromptFilter: Filtering {len(prompts)} prompts with style '{style_name}' (color_mode: {color_mode})")
-
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=4096,
-                system=system_prompt,
-                messages=[
-                    {"role": "user", "content": f"Filter these prompts:\n\n{combined_input}"}
-                ]
-            )
-
-            result_text = response.content[0].text.strip()
-            logger.info(f"[StoryBoard] SBPromptFilter: Received response from Claude API")
-
-            # Split and parse results
-            filtered_results = []
-            parts = result_text.split("---PROMPT_SEPARATOR---")
-
-            for part in parts:
-                part = part.strip()
-                # Remove [number] prefix if present
-                if part.startswith("["):
-                    idx = part.find("]")
-                    if idx != -1:
-                        part = part[idx+1:].strip()
-                if part:
-                    filtered_results.append(part)
-
-            # Ensure we have the same number of outputs
-            if len(filtered_results) != len(prompts):
-                logger.warning(f"[StoryBoard] SBPromptFilter: Output count mismatch ({len(filtered_results)} vs {len(prompts)}), returning originals")
-                return (prompts,)
-
-            # Prepend add_keywords to each result for stronger LoRA trigger
-            if add_keywords:
-                filtered_results = [f"{add_keywords}, {r}" for r in filtered_results]
-                logger.info(f"[StoryBoard] SBPromptFilter: Prepended keywords: '{add_keywords}'")
-
-            # Log each filtered result (truncated for readability)
-            for i, (orig, filtered) in enumerate(zip(prompts, filtered_results)):
-                orig_preview = orig[:50] + "..." if len(orig) > 50 else orig
-                filtered_preview = filtered[:80] + "..." if len(filtered) > 80 else filtered
-                logger.info(f"[StoryBoard] SBPromptFilter: [{i+1}] {orig_preview} → {filtered_preview}")
-
-            logger.info(f"[StoryBoard] SBPromptFilter: Done - {len(filtered_results)} prompts filtered for '{style_name}'")
-            return (filtered_results,)
-
-        except ImportError:
-            logger.error("[StoryBoard] SBPromptFilter: anthropic package not installed")
+        filtered = self._call_api(
+            system_prompt,
+            f"Filter these prompts:\n\n{combined_input}",
+            prompts, key, label=f"style '{style_name}'"
+        )
+        if filtered is None:
             return (prompts,)
-        except Exception as e:
-            logger.error(f"[StoryBoard] SBPromptFilter: API error - {e}")
-            return (prompts,)
+
+        if add_keywords:
+            filtered = [f"{add_keywords}, {r}" for r in filtered]
+            logger.info(f"[StoryBoard] SBPromptFilter: Prepended keywords: '{add_keywords}'")
+
+        return (filtered,)
 
     def _filter_controlnet(self, prompts, cn_type, key):
         system_prompt = self._build_controlnet_system_prompt(cn_type)
-
-        # Combine all prompts with separator
         combined_input = self.SEPARATOR.join([f"[{i+1}] {p}" for i, p in enumerate(prompts)])
 
-        try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=key)
-
-            logger.info(f"[StoryBoard] SBPromptFilter: Filtering {len(prompts)} prompts for '{cn_type}' ControlNet")
-            logger.debug(f"[StoryBoard] SBPromptFilter: System prompt:\n{system_prompt}")
-
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=4096,
-                system=system_prompt,
-                messages=[
-                    {"role": "user", "content": f"Filter these prompts for {cn_type} ControlNet usage:\n\n{combined_input}"}
-                ]
-            )
-
-            result_text = response.content[0].text.strip()
-            logger.info(f"[StoryBoard] SBPromptFilter: Received response from Claude API")
-
-            # Split and parse results
-            filtered_results = []
-            parts = result_text.split("---PROMPT_SEPARATOR---")
-
-            for part in parts:
-                part = part.strip()
-                # Remove [number] prefix if present
-                if part.startswith("["):
-                    idx = part.find("]")
-                    if idx != -1:
-                        part = part[idx+1:].strip()
-                if part:
-                    filtered_results.append(part)
-
-            # Ensure we have the same number of outputs
-            if len(filtered_results) != len(prompts):
-                logger.warning(f"[StoryBoard] SBPromptFilter: Output count mismatch ({len(filtered_results)} vs {len(prompts)}), returning originals")
-                return (prompts,)
-
-            # Log each filtered result (truncated for readability)
-            for i, (orig, filtered) in enumerate(zip(prompts, filtered_results)):
-                orig_preview = orig[:50] + "..." if len(orig) > 50 else orig
-                filtered_preview = filtered[:80] + "..." if len(filtered) > 80 else filtered
-                logger.info(f"[StoryBoard] SBPromptFilter: [{i+1}] {orig_preview} → {filtered_preview}")
-
-            logger.info(f"[StoryBoard] SBPromptFilter: Done - {len(filtered_results)} prompts filtered for '{cn_type}'")
-            return (filtered_results,)
-
-        except ImportError:
-            logger.error("[StoryBoard] SBPromptFilter: anthropic package not installed")
+        filtered = self._call_api(
+            system_prompt,
+            f"Filter these prompts for {cn_type} ControlNet usage:\n\n{combined_input}",
+            prompts, key, label=f"controlnet '{cn_type}'"
+        )
+        if filtered is None:
             return (prompts,)
-        except Exception as e:
-            logger.error(f"[StoryBoard] SBPromptFilter: API error - {e}")
-            return (prompts,)
+
+        return (filtered,)
 
     def filter_prompt(self, prompt, filter_mode, style_type, controlnet_type, api_key):
         # Handle list inputs
@@ -713,22 +590,73 @@ These keywords override LoRA styles and MUST be removed."""
             return self._filter_controlnet(prompts, cn_type, key)
 
 
+MAX_CONCAT_INPUTS = 20
+
+
+class SBConcatStrings:
+    """Concatenate multiple STRING inputs with a separator. Dynamic input count via JS."""
+
+    @classmethod
+    def INPUT_TYPES(s):
+        inputs = {
+            "required": {
+                "num_inputs": ("INT", {"default": 2, "min": 2, "max": MAX_CONCAT_INPUTS}),
+                "separator": ("STRING", {"default": ", "}),
+            },
+            "optional": {},
+        }
+        for i in range(1, MAX_CONCAT_INPUTS + 1):
+            inputs["optional"][f"string_{i}"] = ("STRING", {"forceInput": True})
+        return inputs
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "concat"
+    CATEGORY = "IXIWORKS/StoryBoard"
+    INPUT_IS_LIST = True
+    OUTPUT_IS_LIST = (True,)
+
+    def concat(self, num_inputs, separator, **kwargs):
+        sep = separator[0] if isinstance(separator, list) else separator
+        count = num_inputs[0] if isinstance(num_inputs, list) else num_inputs
+
+        # Collect connected string lists in order
+        string_lists = []
+        for i in range(1, count + 1):
+            val = kwargs.get(f"string_{i}")
+            if val is None:
+                continue
+            if not isinstance(val, list):
+                val = [val]
+            string_lists.append(val)
+
+        if not string_lists:
+            return ([""],)
+
+        # Element-wise concatenation (broadcast shorter lists with last element)
+        max_len = max(len(sl) for sl in string_lists)
+        results = []
+        for idx in range(max_len):
+            parts = []
+            for sl in string_lists:
+                s = sl[idx] if idx < len(sl) else sl[-1]
+                if s.strip():
+                    parts.append(s)
+            results.append(sep.join(parts))
+
+        return (results,)
+
+
 # Node class mappings for ComfyUI
 NODE_CLASS_MAPPINGS = {
     "SBJsonParser": JsonParserNode,
-    "SBPromptBuilder": BuildPromptNode,
-    "SBCharacterPrompt": BuildCharacterPromptNode,
-    "SBSelectCut": SelectIndexNode,
-    "SBMergeStrings": MergeStringsNode,
     "SBPromptFilter": SBPromptFilter,
+    "SBConcatStrings": SBConcatStrings,
 }
 
 # Display name mappings for ComfyUI UI
 NODE_DISPLAY_NAME_MAPPINGS = {
     "SBJsonParser": "SB JSON Parser",
-    "SBPromptBuilder": "SB Prompt Builder",
-    "SBCharacterPrompt": "SB Character Prompt",
-    "SBSelectCut": "Select Cut",
-    "SBMergeStrings": "SB Merge Strings",
     "SBPromptFilter": "SB Prompt Filter",
+    "SBConcatStrings": "SB Concat Strings",
 }
