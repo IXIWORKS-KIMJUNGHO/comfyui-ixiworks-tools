@@ -203,15 +203,23 @@ class SaveFileNode:
             if m:
                 max_num = max(max_num, int(m.group(1)))
 
+        saved_images = []
+
         for i in range(total):
             counter = max_num + 1 + i
 
             if frames:
-                img_np = (frames[i].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-                img_path = os.path.join(save_dir, f"{prefix}_{counter:04d}.png")
+                filename = f"{prefix}_{counter:04d}.png"
+                img_path = os.path.join(save_dir, filename)
                 try:
+                    img_np = (frames[i].cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
                     PILImage.fromarray(img_np).save(img_path)
                     print(f"[SaveFile] Saved image: {img_path}")
+                    saved_images.append({
+                        "filename": filename,
+                        "subfolder": subfolder,
+                        "type": "output",
+                    })
                 except Exception as e:
                     print(f"[SaveFile] Error saving image '{img_path}': {e}")
 
@@ -224,7 +232,7 @@ class SaveFileNode:
                 except Exception as e:
                     print(f"[SaveFile] Error saving text '{txt_path}': {e}")
 
-        return ()
+        return {"ui": {"images": saved_images}}
 
 
 class LoadImageListNode:
