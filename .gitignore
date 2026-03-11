@@ -43,6 +43,9 @@ Thumbs.db
 *.safetensors
 models/__pycache__/
 
+# AWS credentials (S3Upload node)
+s3_config.json
+
 # Test outputs
 test_outputs/
 outputs/
