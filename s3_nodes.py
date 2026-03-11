@@ -4,15 +4,13 @@ from urllib.error import URLError, HTTPError
 
 
 class S3UploadNode:
-    INPUT_IS_LIST = True
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {},
             "optional": {
-                "image_presigned_url": ("STRING", {"default": "", "multiline": False}),
-                "text_presigned_url": ("STRING", {"default": "", "multiline": False}),
+                "image_presigned_url": ("STRING", {"default": "", "multiline": True}),
+                "text_presigned_url": ("STRING", {"default": "", "multiline": True}),
                 "image": ("IMAGE",),
                 "text": ("STRING", {"forceInput": True}),
             }
@@ -35,25 +33,24 @@ class S3UploadNode:
         resp = urlopen(req, timeout=30)
         return resp.status
 
-    def upload(self, image_presigned_url=None, text_presigned_url=None,
+    def upload(self, image_presigned_url="", text_presigned_url="",
                image=None, text=None):
         import numpy as np
         from PIL import Image as PILImage
         from io import BytesIO
 
-        # Flatten image list: List[Tensor[B,H,W,C]] → List[Tensor[H,W,C]]
+        # Split batch tensor into individual frames: Tensor[B,H,W,C] → List[Tensor[H,W,C]]
         frames = []
         if image is not None:
-            for img_tensor in image:
-                for i in range(img_tensor.shape[0]):
-                    frames.append(img_tensor[i])
+            for i in range(image.shape[0]):
+                frames.append(image[i])
 
-        # Normalize URL lists
-        img_urls = image_presigned_url if image_presigned_url else []
-        txt_urls = text_presigned_url if text_presigned_url else []
+        # Parse newline-separated URLs
+        img_urls = [u for u in image_presigned_url.strip().split("\n") if u.strip()] if image_presigned_url.strip() else []
+        txt_urls = [u for u in text_presigned_url.strip().split("\n") if u.strip()] if text_presigned_url.strip() else []
 
         # Normalize text list
-        texts = text if text else []
+        texts = [text] if text else []
 
         uploaded = 0
         failed = 0
