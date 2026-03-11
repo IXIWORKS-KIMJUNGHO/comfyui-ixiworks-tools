@@ -4,6 +4,8 @@ from urllib.error import URLError, HTTPError
 
 
 class S3UploadNode:
+    INPUT_IS_LIST = True
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -39,18 +41,39 @@ class S3UploadNode:
         from PIL import Image as PILImage
         from io import BytesIO
 
-        # Split batch tensor into individual frames: Tensor[B,H,W,C] → List[Tensor[H,W,C]]
+        # INPUT_IS_LIST: scalar inputs arrive as single-element lists
+        if isinstance(image_presigned_url, list):
+            image_presigned_url = image_presigned_url[0] if image_presigned_url else ""
+        if isinstance(text_presigned_url, list):
+            text_presigned_url = text_presigned_url[0] if text_presigned_url else ""
+
+        # Flatten image list: List[Tensor[B,H,W,C]] → List[Tensor[H,W,C]]
         frames = []
         if image is not None:
-            for i in range(image.shape[0]):
-                frames.append(image[i])
+            if isinstance(image, list):
+                for img_tensor in image:
+                    for i in range(img_tensor.shape[0]):
+                        frames.append(img_tensor[i])
+            else:
+                for i in range(image.shape[0]):
+                    frames.append(image[i])
 
         # Parse newline-separated URLs
         img_urls = [u for u in image_presigned_url.strip().split("\n") if u.strip()] if image_presigned_url.strip() else []
         txt_urls = [u for u in text_presigned_url.strip().split("\n") if u.strip()] if text_presigned_url.strip() else []
 
-        # Normalize text list
-        texts = [text] if text else []
+        # Normalize text list: INPUT_IS_LIST makes text a list of strings
+        texts = []
+        if text is not None:
+            if isinstance(text, list):
+                texts = text
+            else:
+                texts = [text]
+
+        total_frames = len(frames)
+        total_texts = len(texts)
+        print(f"[S3Upload] Processing: {total_frames} images, {total_texts} texts, "
+              f"{len(img_urls)} image URLs, {len(txt_urls)} text URLs")
 
         uploaded = 0
         failed = 0
