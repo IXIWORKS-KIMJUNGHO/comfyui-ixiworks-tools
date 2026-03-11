@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -75,10 +76,9 @@ class S3UploadNode:
         print(f"[S3Upload] Processing: {total_frames} images, {total_texts} texts, "
               f"{len(img_urls)} image URLs, {len(txt_urls)} text URLs")
 
-        uploaded = 0
-        failed = 0
+        # Prepare upload tasks
+        tasks = []
 
-        # Upload images
         for i, frame in enumerate(frames):
             if i >= len(img_urls):
                 print(f"[S3Upload] No presigned URL for image {i}, skipping.")
@@ -86,20 +86,12 @@ class S3UploadNode:
             url = img_urls[i].strip()
             if not url:
                 continue
+            img_np = (frame.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
             buf = BytesIO()
-            try:
-                img_np = (frame.cpu().numpy() * 255).clip(0, 255).astype(np.uint8)
-                PILImage.fromarray(img_np).save(buf, format="PNG")
-                self._put(url, buf.getvalue(), "image/png")
-                uploaded += 1
-                print(f"[S3Upload] Uploaded image {i}")
-            except (HTTPError, URLError) as e:
-                failed += 1
-                print(f"[S3Upload] Failed to upload image {i}: {e}")
-            finally:
-                buf.close()
+            PILImage.fromarray(img_np).save(buf, format="PNG")
+            tasks.append(("image", i, url, buf.getvalue(), "image/png"))
+            buf.close()
 
-        # Upload texts
         for i, txt in enumerate(texts):
             if i >= len(txt_urls):
                 print(f"[S3Upload] No presigned URL for text {i}, skipping.")
@@ -107,13 +99,29 @@ class S3UploadNode:
             url = txt_urls[i].strip()
             if not url:
                 continue
-            try:
-                self._put(url, txt.encode("utf-8"), "text/plain; charset=utf-8")
-                uploaded += 1
-                print(f"[S3Upload] Uploaded text {i}")
-            except (HTTPError, URLError) as e:
-                failed += 1
-                print(f"[S3Upload] Failed to upload text {i}: {e}")
+            tasks.append(("text", i, url, txt.encode("utf-8"), "text/plain; charset=utf-8"))
+
+        # Upload all in parallel
+        uploaded = 0
+        failed = 0
+
+        def _do_upload(task):
+            kind, idx, url, body, content_type = task
+            self._put(url, body, content_type)
+            return kind, idx
+
+        with ThreadPoolExecutor(max_workers=min(len(tasks), 8) or 1) as pool:
+            futures = {pool.submit(_do_upload, t): t for t in tasks}
+            for future in as_completed(futures):
+                task = futures[future]
+                kind, idx = task[0], task[1]
+                try:
+                    future.result()
+                    uploaded += 1
+                    print(f"[S3Upload] Uploaded {kind} {idx}")
+                except (HTTPError, URLError) as e:
+                    failed += 1
+                    print(f"[S3Upload] Failed to upload {kind} {idx}: {e}")
 
         print(f"[S3Upload] Done. {uploaded} uploaded, {failed} failed.")
         return ()
