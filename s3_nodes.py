@@ -1,5 +1,5 @@
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
@@ -16,6 +16,10 @@ class S3UploadNode:
                 "text_presigned_url": ("STRING", {"default": "", "multiline": True}),
                 "image": ("IMAGE",),
                 "text": ("STRING", {"forceInput": True}),
+                "callback_url": ("STRING", {"default": ""}),
+                "callback_job_id": ("STRING", {"default": ""}),
+                "callback_scene_number": ("STRING", {"default": ""}),
+                "callback_token": ("STRING", {"default": ""}),
             }
         }
 
@@ -36,8 +40,24 @@ class S3UploadNode:
         resp = urlopen(req, timeout=30)
         return resp.status
 
+    def _post_callback(self, callback_url, job_id, scene_number, token, uploaded, failed):
+        """Send completion callback to backend."""
+        payload = json.dumps({
+            "storyboard_job_id": job_id,
+            "scene_number": scene_number,
+            "token": token,
+            "uploaded": uploaded,
+            "failed": failed,
+        }).encode("utf-8")
+        req = Request(callback_url, data=payload, method="POST")
+        req.add_header("Content-Type", "application/json")
+        resp = urlopen(req, timeout=30)
+        return resp.status
+
     def upload(self, image_presigned_url="", text_presigned_url="",
-               image=None, text=None):
+               image=None, text=None,
+               callback_url="", callback_job_id="", callback_scene_number="",
+               callback_token=""):
         import numpy as np
         from PIL import Image as PILImage
         from io import BytesIO
@@ -47,6 +67,14 @@ class S3UploadNode:
             image_presigned_url = image_presigned_url[0] if image_presigned_url else ""
         if isinstance(text_presigned_url, list):
             text_presigned_url = text_presigned_url[0] if text_presigned_url else ""
+        if isinstance(callback_url, list):
+            callback_url = callback_url[0] if callback_url else ""
+        if isinstance(callback_job_id, list):
+            callback_job_id = callback_job_id[0] if callback_job_id else ""
+        if isinstance(callback_scene_number, list):
+            callback_scene_number = callback_scene_number[0] if callback_scene_number else ""
+        if isinstance(callback_token, list):
+            callback_token = callback_token[0] if callback_token else ""
 
         # Flatten image list: List[Tensor[B,H,W,C]] → List[Tensor[H,W,C]]
         frames = []
@@ -119,11 +147,22 @@ class S3UploadNode:
                     future.result()
                     uploaded += 1
                     print(f"[S3Upload] Uploaded {kind} {idx}")
-                except (HTTPError, URLError) as e:
+                except Exception as e:
                     failed += 1
                     print(f"[S3Upload] Failed to upload {kind} {idx}: {e}")
 
         print(f"[S3Upload] Done. {uploaded} uploaded, {failed} failed.")
+
+        # Send completion callback
+        if callback_url.strip():
+            try:
+                status = self._post_callback(
+                    callback_url.strip(), callback_job_id, callback_scene_number,
+                    callback_token, uploaded, failed)
+                print(f"[S3Upload] Callback sent to {callback_url} (status {status})")
+            except Exception as e:
+                print(f"[S3Upload] Callback failed: {e}")
+
         return ()
 
 
