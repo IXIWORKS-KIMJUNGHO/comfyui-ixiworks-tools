@@ -31,12 +31,13 @@ class JsonParserNode:
             },
         }
 
-    RETURN_TYPES = ("STRING",) * 14 + ("INT",)
+    RETURN_TYPES = ("STRING",) * 15 + ("INT",)
     RETURN_NAMES = (
         # Scene level
         "time_of_day", "weather", "mood", "location",
         # Cut level
-        "description", "camera_shot", "camera_angle", "composition",
+        "c_description", "fs_description",
+        "camera_shot", "camera_angle", "composition",
         "camera_movement", "lens_type", "lighting_style", "lighting_direction",
         # Derived
         "focus_subject", "character_prompt",
@@ -44,7 +45,7 @@ class JsonParserNode:
     )
     FUNCTION = "parse"
     CATEGORY = "IXIWORKS/StoryBoard"
-    OUTPUT_IS_LIST = (True,) * 14 + (False,)
+    OUTPUT_IS_LIST = (True,) * 15 + (False,)
 
     @classmethod
     def IS_CHANGED(s, JSON):
@@ -104,7 +105,7 @@ class JsonParserNode:
                 if not isinstance(cut, dict):
                     continue
                 shot = cut.get("cameraShot", "")
-                desc = cut.get("description", "")
+                desc = cut.get("cDescription", "")
                 if len(desc) > 40:
                     desc = desc[:37] + "..."
                 parts = filter(None, [shot, desc])
@@ -125,7 +126,7 @@ class JsonParserNode:
         if not file_path or not os.path.exists(file_path):
             logger.error(f"[StoryBoard] JsonParserNode: File not found '{JSON}'")
             empty = [""]
-            return {"ui": {"preview": ["File not found"]}, "result": (*([empty] * 14), 0)}
+            return {"ui": {"preview": ["File not found"]}, "result": (*([empty] * 15), 0)}
 
         logger.info(f"[StoryBoard] JsonParserNode: file path '{file_path}'")
         try:
@@ -136,7 +137,8 @@ class JsonParserNode:
             character_data = data.get("character", {})
 
             # Per-cut output lists
-            descriptions = []
+            c_descriptions = []
+            fs_descriptions = []
             times = []
             weathers = []
             moods = []
@@ -168,7 +170,8 @@ class JsonParserNode:
                     if not isinstance(cut, dict):
                         continue
 
-                    descriptions.append(cut.get("description", ""))
+                    c_descriptions.append(cut.get("cDescription", ""))
+                    fs_descriptions.append(cut.get("fsDescription", ""))
                     times.append(s_time)
                     weathers.append(s_weather)
                     moods.append(s_mood)
@@ -187,13 +190,13 @@ class JsonParserNode:
                         self._build_character_prompt(character_data, focus)
                     )
 
-            count = len(descriptions)
+            count = len(c_descriptions)
             preview = self._build_preview(scene_data, character_data)
 
             if count == 0:
                 logger.warning("[StoryBoard] JsonParserNode: No cuts found in JSON")
                 empty = [""]
-                return {"ui": {"preview": [preview or "No cuts found"]}, "result": (*([empty] * 14), 0)}
+                return {"ui": {"preview": [preview or "No cuts found"]}, "result": (*([empty] * 15), 0)}
 
             logger.info(f"[StoryBoard] JsonParserNode: Parsed {count} cuts from {len(scene_data)} scenes")
 
@@ -203,7 +206,8 @@ class JsonParserNode:
                     # Scene level
                     times, weathers, moods, locations,
                     # Cut level
-                    descriptions, camera_shots, camera_angles, compositions,
+                    c_descriptions, fs_descriptions,
+                    camera_shots, camera_angles, compositions,
                     camera_movements, lens_types, lighting_styles, lighting_directions,
                     # Derived
                     focus_subjects, character_prompts,
@@ -214,7 +218,7 @@ class JsonParserNode:
         except Exception as e:
             logger.error(f"[StoryBoard] JsonParserNode: Error reading file: {e}")
             empty = [""]
-            return {"ui": {"preview": [f"Error: {e}"]}, "result": (*([empty] * 14), 0)}
+            return {"ui": {"preview": [f"Error: {e}"]}, "result": (*([empty] * 15), 0)}
 
 
 LORA_STYLE_PRESETS = {
